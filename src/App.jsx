@@ -411,6 +411,35 @@ select.fi{appearance:auto}
 .pay-processing{display:flex;align-items:center;justify-content:center;gap:.6rem;padding:1rem;background:rgba(232,160,32,.08);border:1px solid rgba(232,160,32,.2);border-radius:var(--r);font-size:.85rem;color:var(--acc)}
 .pay-error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:var(--r);padding:.75rem 1rem;font-size:.82rem;color:var(--err);margin-top:.5rem}
 
+/* CHECKOUT STEPS */
+.chk-steps{display:flex;align-items:center;gap:0;margin-bottom:1.5rem}
+.chk-step{display:flex;align-items:center;gap:.4rem;font-size:.75rem;font-weight:600;color:var(--mu);flex:1}
+.chk-step.done{color:var(--ok)}.chk-step.active{color:var(--acc)}
+.chk-step-num{width:22px;height:22px;border-radius:50%;border:2px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;flex-shrink:0}
+.chk-step-line{flex:1;height:1px;background:var(--br);margin:0 .3rem}
+
+/* CONFIRMATION SUMMARY */
+.conf-block{background:var(--sf2);border:1px solid var(--br);border-radius:10px;padding:1rem 1.1rem;margin-bottom:.85rem}
+.conf-block h4{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:.95rem;text-transform:uppercase;color:var(--mu);letter-spacing:.5px;margin-bottom:.6rem;display:flex;align-items:center;gap:.4rem}
+.conf-row{display:flex;justify-content:space-between;font-size:.83rem;padding:.2rem 0}
+.conf-row span:first-child{color:var(--mu)}
+.conf-row span:last-child{font-weight:500}
+.conf-total{display:flex;justify-content:space-between;font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:900;color:var(--acc);border-top:1px solid var(--br);margin-top:.5rem;padding-top:.5rem}
+
+/* CHECKBOXES */
+.chk-consent{margin:.5rem 0}
+.chk-consent-row{display:flex;align-items:flex-start;gap:.65rem;padding:.6rem .75rem;border-radius:8px;border:1px solid var(--br);background:var(--sf2);margin-bottom:.45rem;cursor:pointer;transition:border-color .15s}
+.chk-consent-row:hover{border-color:var(--acc)}
+.chk-consent-row.required.checked{border-color:var(--ok)}
+.chk-consent-row.err-border{border-color:var(--err)!important}
+.chk-box-input{width:18px;height:18px;border:2px solid var(--br);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;margin-top:.1rem;transition:all .15s;background:var(--sf)}
+.chk-box-input.checked{background:var(--ok);border-color:var(--ok)}
+.chk-box-input.checked-opt{background:var(--acc);border-color:var(--acc)}
+.chk-consent-txt{font-size:.78rem;color:var(--mu);line-height:1.55}
+.chk-consent-txt strong{color:var(--tx)}
+.chk-consent-txt a{color:var(--acc);text-decoration:underline;cursor:pointer}
+
+
 
 /* INVOICE PREVIEW */
 .inv-preview{background:#fff;color:#111;border-radius:10px;padding:2rem;font-size:.82rem;line-height:1.6;font-family:'Barlow',sans-serif}
@@ -1176,11 +1205,15 @@ function PayPalButton({ amount, onSuccess, onError, disabled }) {
 }
 
 // ── CHECKOUT ──────────────────────────────────────────────────────────────────
-function Checkout({ cart, cartTotal, onClose, onOrder }) {
+function Checkout({ cart, cartTotal, onClose, onOrder, setView }) {
   const [payment, setPayment] = useState("paypal");
   const [c, setC] = useState({name:"",email:"",street:"",zip:"",city:""});
   const [err, setErr] = useState({});
-  const [step, setStep] = useState("form"); // form | paypal | processing
+  // steps: "form" → "confirm" → "payment" (paypal) or done (vorkasse) → "processing"
+  const [step, setStep] = useState("form");
+  const [consentDaten, setConsentDaten] = useState(false);
+  const [consentNewsletter, setConsentNewsletter] = useState(false);
+  const [consentErr, setConsentErr] = useState(false);
   const [paypalError, setPaypalError] = useState(null);
   const sc = (k,v) => setC(x=>({...x,[k]:v}));
 
@@ -1194,123 +1227,237 @@ function Checkout({ cart, cartTotal, onClose, onOrder }) {
     setErr(e); return !Object.keys(e).length;
   };
 
-  const handleVorkasse = () => {
-    if (validate()) onOrder({ payment:"vorkasse", customer:c });
+  const handleToConfirm = () => {
+    if (validate()) { setStep("confirm"); setConsentErr(false); }
+  };
+
+  const handleConfirm = () => {
+    if (!consentDaten) { setConsentErr(true); return; }
+    if (payment === "vorkasse") {
+      onOrder({ payment:"vorkasse", customer:c, newsletter:consentNewsletter });
+    } else {
+      setStep("payment");
+    }
   };
 
   const handlePayPalSuccess = (details) => {
     setStep("processing");
     onOrder({
-      payment: "paypal",
-      customer: c,
+      payment: "paypal", customer: c,
       paypalOrderId: details.id,
-      paypalPayer: details.payer,
+      newsletter: consentNewsletter,
     });
   };
 
-  const handleContinueToPayPal = () => {
-    if (validate()) setStep("paypal");
-  };
+  // Step indicator labels
+  const steps = [
+    { key:"form",    label:"Daten" },
+    { key:"confirm", label:"Prüfen" },
+    { key:"payment", label:"Zahlung" },
+  ];
+  const stepIdx = steps.findIndex(s=>s.key===step);
 
   return (
     <>
       <div className="ov" onClick={onClose}/>
       <div className="chk-ov">
         <div className="chk-box">
-          <h2>Kasse</h2>
 
-          {step === "processing" ? (
-            <div className="pay-processing" style={{flexDirection:"column",gap:"1rem",padding:"2rem"}}>
-              <I d={ICONS.check} size={32}/>
-              <div style={{fontWeight:700}}>Zahlung erfolgreich!</div>
-              <div style={{fontSize:".82rem",color:"var(--mu)"}}>Bestellung wird verarbeitet…</div>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.2rem"}}>
+            <h2 style={{margin:0}}>Kasse</h2>
+            <div className="xbtn" onClick={onClose}><I d={ICONS.x} size={14}/></div>
+          </div>
+
+          {/* Step indicator */}
+          {step !== "processing" && (
+            <div className="chk-steps">
+              {steps.map((s,i) => (
+                <>
+                  <div key={s.key} className={`chk-step${i<stepIdx?" done":i===stepIdx?" active":""}`}>
+                    <div className="chk-step-num">
+                      {i < stepIdx ? <I d={ICONS.check} size={11}/> : i+1}
+                    </div>
+                    {s.label}
+                  </div>
+                  {i < steps.length-1 && <div key={`line-${i}`} className="chk-step-line"/>}
+                </>
+              ))}
             </div>
-          ) : (
+          )}
+
+          {/* ── STEP 1: FORM ── */}
+          {step === "form" && (
             <>
-              {/* Kundendaten */}
               <div className="sec-ttl">Ihre Daten</div>
-              <div className="fg"><label>Vor- & Nachname</label>
+              <div className="fg"><label>Vor- & Nachname *</label>
                 <input className={`fi${err.name?" err":""}`} placeholder="Max Mustermann" value={c.name} onChange={e=>sc("name",e.target.value)}/>
               </div>
-              <div className="fg"><label>E-Mail</label>
+              <div className="fg"><label>E-Mail-Adresse *</label>
                 <input className={`fi${err.email?" err":""}`} type="email" placeholder="max@beispiel.de" value={c.email} onChange={e=>sc("email",e.target.value)}/>
               </div>
-              <div className="fg"><label>Straße & Hausnummer</label>
+              <div className="fg"><label>Straße & Hausnummer *</label>
                 <input className={`fi${err.street?" err":""}`} placeholder="Musterstraße 12" value={c.street} onChange={e=>sc("street",e.target.value)}/>
               </div>
               <div className="fr">
-                <div className="fg"><label>PLZ</label>
+                <div className="fg"><label>PLZ *</label>
                   <input className={`fi${err.zip?" err":""}`} placeholder="12345" value={c.zip} onChange={e=>sc("zip",e.target.value)}/>
                 </div>
-                <div className="fg"><label>Stadt</label>
-                  <input className={`fi${err.city?" err":""}`} placeholder="Berlin" value={c.city} onChange={e=>sc("city",e.target.value)}/>
+                <div className="fg"><label>Stadt *</label>
+                  <input className={`fi${err.city?" err":""}`} placeholder="Ketsch" value={c.city} onChange={e=>sc("city",e.target.value)}/>
                 </div>
               </div>
 
-              {/* Zahlungsart */}
               <div className="sec-ttl">Zahlungsart</div>
               <div className="pay-opts">
-                <div className={`popt${payment==="paypal"?" on":""}`} onClick={()=>{setPayment("paypal");setStep("form");}}>
+                <div className={`popt${payment==="paypal"?" on":""}`} onClick={()=>setPayment("paypal")}>
                   <div className="pp-logo">Pay<span>Pal</span></div>
                   <div className="popt-lbl">PayPal</div>
                   <div className="popt-sub">Schnell & sicher</div>
                 </div>
-                <div className={`popt${payment==="vorkasse"?" on":""}`} onClick={()=>{setPayment("vorkasse");setStep("form");}}>
+                <div className={`popt${payment==="vorkasse"?" on":""}`} onClick={()=>setPayment("vorkasse")}>
                   <div style={{fontSize:"1.1rem"}}>🏦</div>
                   <div className="popt-lbl">Vorkasse</div>
                   <div className="popt-sub">Banküberweisung</div>
                 </div>
               </div>
 
+              <div className="chk-acts">
+                <button className="btn btn-o" onClick={onClose}>Abbrechen</button>
+                <button className="btn btn-p" onClick={handleToConfirm}>
+                  Weiter zur Übersicht →
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── STEP 2: CONFIRM ── */}
+          {step === "confirm" && (
+            <>
+              {/* Lieferadresse */}
+              <div className="conf-block">
+                <h4><I d={ICONS.mappin} size={14}/> Lieferadresse</h4>
+                <div className="conf-row"><span>Name</span><span>{c.name}</span></div>
+                <div className="conf-row"><span>E-Mail</span><span>{c.email}</span></div>
+                <div className="conf-row"><span>Adresse</span><span>{c.street}, {c.zip} {c.city}</span></div>
+              </div>
+
+              {/* Zahlungsart */}
+              <div className="conf-block">
+                <h4><I d={ICONS.shield} size={14}/> Zahlungsart</h4>
+                <div className="conf-row">
+                  <span>Methode</span>
+                  <span style={{fontWeight:700,color:payment==="paypal"?"#009cde":"var(--acc)"}}>
+                    {payment === "paypal" ? "💳 PayPal" : "🏦 Vorkasse (Banküberweisung)"}
+                  </span>
+                </div>
+                {payment === "vorkasse" && (
+                  <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".4rem",padding:".5rem",background:"var(--sf)",borderRadius:"6px"}}>
+                    IBAN: DE59 5467 0024 0032 0051 00 · BIC: DEUTDEDB546<br/>
+                    Verwendungszweck: Ihre Bestellnummer (wird nach Bestellung angezeigt)
+                  </div>
+                )}
+              </div>
+
               {/* Bestellübersicht */}
-              <div className="sec-ttl">Bestellübersicht</div>
-              <div className="ord-sum">
+              <div className="conf-block">
+                <h4><I d={ICONS.box} size={14}/> Bestellübersicht</h4>
                 {cart.map(i=>(
-                  <div key={i.id} className="srow">
-                    <span>{i.name.split(" ").slice(0,4).join(" ")} ×{i.qty}</span>
+                  <div key={i.id} className="conf-row">
+                    <span>{i.name.split(" ").slice(0,4).join(" ")} × {i.qty}</span>
                     <span>{fmt(i.price*i.qty)}</span>
                   </div>
                 ))}
-                <div className="srow stotal"><span>Gesamt inkl. MwSt.</span><span>{fmt(cartTotal)}</span></div>
+                <div className="conf-total"><span>Gesamtbetrag</span><span>{fmt(cartTotal)}</span></div>
+                <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".35rem"}}>inkl. 19% MwSt. · Versand kostenlos</div>
               </div>
 
-              {/* PayPal Buttons — zeige sie wenn PayPal gewählt */}
-              {payment === "paypal" && step === "paypal" && (
-                <div style={{marginTop:"1rem"}}>
-                  <div style={{fontSize:".8rem",color:"var(--mu)",marginBottom:".75rem",textAlign:"center"}}>
-                    Betrag: <strong style={{color:"var(--acc)"}}>{fmt(cartTotal)}</strong> — Bitte bei PayPal einloggen und bestätigen:
+              {/* Einverständnisse */}
+              <div className="chk-consent">
+                {/* Pflicht: Datenschutz */}
+                <div
+                  className={`chk-consent-row required${consentDaten?" checked":""}${consentErr&&!consentDaten?" err-border":""}`}
+                  onClick={()=>{setConsentDaten(v=>!v);setConsentErr(false);}}>
+                  <div className={`chk-box-input${consentDaten?" checked":""}`}>
+                    {consentDaten && <I d={ICONS.check} size={11} sw={3}/>}
                   </div>
-                  <PayPalButton
-                    amount={cartTotal}
-                    onSuccess={handlePayPalSuccess}
-                    onError={() => setPaypalError("PayPal Zahlung fehlgeschlagen.")}
-                    disabled={false}
-                  />
-                  {paypalError && <div className="pay-error">{paypalError}</div>}
-                  <button className="btn btn-o btn-sm" style={{marginTop:".75rem",width:"100%",justifyContent:"center"}}
-                    onClick={()=>setStep("form")}>
-                    ← Zurück
-                  </button>
+                  <div className="chk-consent-txt">
+                    <strong>Einverständnis Datenverarbeitung *</strong><br/>
+                    Ich stimme zu, dass meine personenbezogenen Daten zur Abwicklung meiner Bestellung gemäß der{" "}
+                    <a onClick={e=>{e.stopPropagation();}}>Datenschutzerklärung</a> verarbeitet werden. Diese Zustimmung ist zur Bestellabwicklung erforderlich.
+                  </div>
                 </div>
-              )}
+                {consentErr && !consentDaten && (
+                  <div style={{fontSize:".75rem",color:"var(--err)",marginBottom:".5rem",paddingLeft:".75rem",display:"flex",alignItems:"center",gap:".3rem"}}>
+                    <I d={ICONS.x} size={12}/> Bitte stimmen Sie der Datenverarbeitung zu, um fortzufahren.
+                  </div>
+                )}
 
-              {/* Action Buttons */}
-              {step === "form" && (
-                <div className="chk-acts">
-                  <button className="btn btn-o" onClick={onClose}>Abbrechen</button>
-                  {payment === "paypal" ? (
-                    <button className="btn btn-p" onClick={handleContinueToPayPal}>
-                      Weiter zu PayPal →
-                    </button>
-                  ) : (
-                    <button className="btn btn-p" onClick={handleVorkasse}>
-                      Kostenpflichtig bestellen →
-                    </button>
-                  )}
+                {/* Optional: Newsletter */}
+                <div
+                  className={`chk-consent-row${consentNewsletter?" checked":""}`}
+                  onClick={()=>setConsentNewsletter(v=>!v)}>
+                  <div className={`chk-box-input${consentNewsletter?" checked-opt":""}`}>
+                    {consentNewsletter && <I d={ICONS.check} size={11} sw={3}/>}
+                  </div>
+                  <div className="chk-consent-txt">
+                    <strong>Newsletter abonnieren</strong> <span style={{fontWeight:400,color:"var(--mu)"}}>(optional)</span><br/>
+                    Ja, ich möchte den MK-Electro Newsletter mit Angeboten und Neuigkeiten per E-Mail erhalten. Abmeldung jederzeit möglich.
+                  </div>
                 </div>
-              )}
+              </div>
+
+              <div style={{fontSize:".72rem",color:"var(--mu)",marginBottom:".5rem"}}>
+                * Pflichtfeld
+              </div>
+
+              <div className="chk-acts">
+                <button className="btn btn-o" onClick={()=>setStep("form")}>← Zurück</button>
+                <button className="btn btn-p" onClick={handleConfirm} style={{flex:1,justifyContent:"center"}}>
+                  {payment==="paypal"
+                    ? <><I d={ICONS.shield} size={15}/> Weiter zu PayPal →</>
+                    : <><I d={ICONS.check} size={15}/> Jetzt kostenpflichtig bestellen</>
+                  }
+                </button>
+              </div>
             </>
           )}
+
+          {/* ── STEP 3: PAYPAL ── */}
+          {step === "payment" && (
+            <>
+              <div style={{textAlign:"center",marginBottom:"1rem"}}>
+                <div style={{fontSize:"1rem",fontWeight:700,marginBottom:".3rem"}}>PayPal Zahlung</div>
+                <div style={{fontSize:".83rem",color:"var(--mu)"}}>
+                  Betrag: <strong style={{color:"var(--acc)",fontSize:"1.1rem"}}>{fmt(cartTotal)}</strong>
+                </div>
+                <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".2rem"}}>
+                  für {c.name} · {c.email}
+                </div>
+              </div>
+              <PayPalButton
+                amount={cartTotal}
+                onSuccess={handlePayPalSuccess}
+                onError={()=>setPaypalError("PayPal Zahlung fehlgeschlagen. Bitte erneut versuchen.")}
+                disabled={false}
+              />
+              {paypalError && <div className="pay-error"><I d={ICONS.x} size={13}/> {paypalError}</div>}
+              <button className="btn btn-o btn-sm" style={{marginTop:".85rem",width:"100%",justifyContent:"center"}}
+                onClick={()=>setStep("confirm")}>
+                ← Zurück zur Übersicht
+              </button>
+            </>
+          )}
+
+          {/* ── PROCESSING ── */}
+          {step === "processing" && (
+            <div className="pay-processing" style={{flexDirection:"column",gap:"1rem",padding:"2.5rem"}}>
+              <I d={ICONS.check} size={36}/>
+              <div style={{fontWeight:700,fontSize:"1.1rem"}}>Zahlung erfolgreich!</div>
+              <div style={{fontSize:".82rem",color:"var(--mu)"}}>Bestellung wird verarbeitet…</div>
+            </div>
+          )}
+
         </div>
       </div>
     </>
@@ -2214,10 +2361,11 @@ export default function App() {
   const placeOrder = async (data) => {
     const order = {
       id: genId(), date: fmtDate(),
-      status: data.payment === "paypal" ? "Bezahlt" : "Neu", // PayPal = sofort bezahlt
+      status: data.payment === "paypal" ? "Bezahlt" : "Neu",
       payment: data.payment, customer: data.customer,
       items: cart, total: cartTotal,
       paypalOrderId: data.paypalOrderId || null,
+      newsletter: data.newsletter || false,
     };
     try {
       await supabase.from("orders").insert(orderToRow(order));
