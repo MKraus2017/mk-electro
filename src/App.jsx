@@ -3633,17 +3633,38 @@ export default function App() {
         ]);
         if (pe) throw pe;
         if (oe) throw oe;
-        // Seed default products if DB is empty
+
         if (!prods || prods.length === 0) {
+          // DB komplett leer → alle Produkte einspielen
           const rows = DEFAULT_PRODUCTS.map(p => ({
             name:p.name, category:p.category, price:p.price, ek:p.ek,
             shipping:p.shipping, stock:p.stock, stock_external:p.stockExternal,
             delivery:p.delivery, sku:p.sku, images:p.images, description:p.description,
+            supplier:p.supplier||"",
           }));
           const { data: seeded } = await supabase.from("products").insert(rows).select();
           setProducts((seeded||[]).map(rowToProduct));
         } else {
-          setProducts(prods.map(rowToProduct));
+          // DB hat Produkte → prüfe ob neue DEFAULT_PRODUCTS fehlen (per SKU)
+          const existingSkus = new Set(prods.map(p => p.sku).filter(Boolean));
+          const existingNames = new Set(prods.map(p => p.name));
+          const missing = DEFAULT_PRODUCTS.filter(p =>
+            p.sku ? !existingSkus.has(p.sku) : !existingNames.has(p.name)
+          );
+          if (missing.length > 0) {
+            const rows = missing.map(p => ({
+              name:p.name, category:p.category, price:p.price, ek:p.ek,
+              shipping:p.shipping, stock:p.stock, stock_external:p.stockExternal,
+              delivery:p.delivery, sku:p.sku, images:p.images, description:p.description,
+              supplier:p.supplier||"",
+            }));
+            const { data: added } = await supabase.from("products").insert(rows).select();
+            const allProds = [...prods, ...(added||[])];
+            setProducts(allProds.map(rowToProduct));
+            console.log(`✅ ${missing.length} neue Produkte in Supabase eingespielt`);
+          } else {
+            setProducts(prods.map(rowToProduct));
+          }
         }
         setOrders((ords||[]).map(rowToOrder));
         setLoaded(true);
