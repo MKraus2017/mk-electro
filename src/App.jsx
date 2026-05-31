@@ -40,6 +40,9 @@ function rowToOrder(r) {
     carrier: r.carrier || null,
     tracking_number: r.tracking_number || null,
     serial_numbers: r.serial_numbers || null,
+    source: r.source || "shop",
+    ebay_order_id: r.ebay_order_id || null,
+    ebay_item_id: r.ebay_item_id || null,
   };
 }
 // Map app order → Supabase row shape
@@ -50,6 +53,9 @@ function orderToRow(o) {
     customer_street: o.customer?.street, customer_zip: o.customer?.zip,
     customer_city: o.customer?.city, items: o.items, total: o.total,
     newsletter: o.newsletter || false,
+    source: o.source || "shop",
+    ebay_order_id: o.ebay_order_id || null,
+    ebay_item_id: o.ebay_item_id || null,
   };
 }
 
@@ -2415,6 +2421,7 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
           {k:"dashboard",  l:"Dashboard",   d:ICONS.home},
           {k:"products",   l:"Produkte",    d:ICONS.box},
           {k:"orders",     l:"Bestellungen",d:ICONS.orders},
+          {k:"ebay",       l:"eBay Import", d:ICONS.orders},
           {k:"customers",  l:"Kunden",      d:ICONS.users},
           {k:"newsletter", l:"Newsletter",  d:ICONS.newsletter},
         ].map(item=>(
@@ -2422,6 +2429,9 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
             <I d={item.d} size={15}/>{item.l}
             {item.k==="orders" && orders.filter(o=>o.status==="Neu").length>0 && (
               <span className="badge" style={{marginLeft:"auto",background:"var(--acc2)"}}>{orders.filter(o=>o.status==="Neu").length}</span>
+            )}
+            {item.k==="ebay" && orders.filter(o=>o.source==="ebay"&&o.status==="Neu").length>0 && (
+              <span className="badge" style={{marginLeft:"auto",background:"#e53238"}}>{orders.filter(o=>o.source==="ebay"&&o.status==="Neu").length}</span>
             )}
             {item.k==="customers" && regUsers.length>0 && (
               <span className="badge" style={{marginLeft:"auto",background:"var(--inf)"}}>{regUsers.length}</span>
@@ -2613,7 +2623,11 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
           </>
         )}
         {/* CUSTOMERS */}
-        {beSection==="customers" && (
+        {beSection==="ebay" && (
+          <EbayImportSection orders={orders} setOrders={setOrders} products={products}
+            updateOrderStatus={updateOrderStatus} updateOrderDetails={updateOrderDetails}
+            setOrderModal={setOrderModal} setInvoiceModal={setInvoiceModal}/>
+        )}
           <CustomersSection
             orders={orders}
             regUsers={regUsers}
@@ -3336,6 +3350,398 @@ function NewsletterSection({ newsletterList, deleteCustomer }) {
             </div>
           </div>
         </div>
+      )}
+    </>
+  );
+}
+
+// ── EBAY IMPORT SECTION ───────────────────────────────────────────────────────
+function EbayImportSection({ orders, setOrders, products, updateOrderStatus, updateOrderDetails, setOrderModal, setInvoiceModal }) {
+  const ebayOrders = orders.filter(o => o.source === "ebay").sort((a,b) => b.id.localeCompare(a.id));
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+
+  // Form state
+  const emptyForm = {
+    ebayOrderId:"", ebayItemId:"", itemName:"", ean:"", qty:1, price:"",
+    buyerName:"", buyerEmail:"", street:"", zip:"", city:"", country:"DE",
+    payment:"paypal", status:"Bezahlt",
+  };
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState("");
+  const [tab, setTab] = useState("manual"); // manual | csv | list
+  const [csvText, setCsvText] = useState("");
+  const [csvResult, setCsvResult] = useState(null);
+  const sf = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  // Suggest product from EAN or name
+  const [suggestion, setSuggestion] = useState(null);
+  useEffect(() => {
+    if (!form.ean && !form.itemName) { setSuggestion(null); return; }
+    const match = products.find(p =>
+      (form.ean && p.ean === form.ean) ||
+      (form.itemName && p.name.toLowerCase().includes(form.itemName.toLowerCase().slice(0,10)))
+    );
+    setSuggestion(match || null);
+  }, [form.ean, form.itemName, products]);
+
+  const genId = () => "EBY-" + Date.now().toString(36).toUpperCase();
+
+  const saveOrder = async (orderData) => {
+    const order = {
+      id: genId(),
+      date: new Date().toLocaleDateString("de-DE"),
+      status: orderData.status,
+      payment: orderData.payment,
+      source: "ebay",
+      ebay_order_id: orderData.ebayOrderId || null,
+      ebay_item_id: orderData.ebayItemId || null,
+      customer: {
+        name: orderData.buyerName, email: orderData.buyerEmail,
+        street: orderData.street, zip: orderData.zip, city: orderData.city,
+      },
+      items: [{
+        id: suggestion?.id || Date.now(),
+        name: orderData.itemName,
+        qty: parseInt(orderData.qty)||1,
+        price: parseFloat(orderData.price)||0,
+      }],
+      total: (parseFloat(orderData.price)||0) * (parseInt(orderData.qty)||1),
+      newsletter: false,
+    };
+    try {
+      const { data, error } = await supabase.from("orders").insert(orderToRow(order)).select().single();
+      if (error) throw error;
+      setOrders(os => [rowToOrder(data), ...os]);
+      return true;
+    } catch(e) {
+      setErr("Fehler: " + e.message);
+      return false;
+    }
+  };
+
+  const handleManualSave = async () => {
+    if (!form.itemName || !form.price || !form.buyerName) {
+      setErr("Artikelname, Preis und Käufername sind Pflichtfelder.");
+      return;
+    }
+    setSaving(true); setErr("");
+    const ok = await saveOrder(form);
+    if (ok) { setSaved(true); setForm(emptyForm); setSuggestion(null); setTimeout(()=>setSaved(false),2000); }
+    setSaving(false);
+  };
+
+  // CSV Parser: eBay Verkäufe CSV (Spalten: Bestellnummer, Artikel, Preis, Käufer, Adresse...)
+  const parseCSV = () => {
+    const lines = csvText.trim().split("\n").filter(l=>l.trim());
+    if (lines.length < 2) { setErr("CSV muss mindestens eine Kopfzeile und eine Datenzeile haben."); return; }
+    const headers = lines[0].split(",").map(h=>h.trim().replace(/"/g,"").toLowerCase());
+    const rows = lines.slice(1).map(line => {
+      const cols = line.split(",").map(c=>c.trim().replace(/"/g,""));
+      const row = {};
+      headers.forEach((h,i) => row[h] = cols[i]||"");
+      return row;
+    });
+    // Try to map common eBay CSV column names
+    const mapped = rows.map(r => ({
+      ebayOrderId:  r["bestellnummer"] || r["order id"] || r["order number"] || "",
+      ebayItemId:   r["artikel-nr"] || r["item id"] || r["item number"] || "",
+      itemName:     r["artikelbezeichnung"] || r["item title"] || r["artikel"] || r["title"] || "",
+      qty:          r["menge"] || r["quantity"] || r["qty"] || "1",
+      price:        (r["gesamtbetrag"] || r["total"] || r["price"] || "0").replace("€","").replace(",",".").trim(),
+      buyerName:    r["käufer"] || r["buyer"] || r["name"] || "",
+      buyerEmail:   r["käufer-email"] || r["buyer email"] || r["email"] || "",
+      street:       r["straße"] || r["strasse"] || r["street"] || r["address"] || "",
+      zip:          r["plz"] || r["zip"] || r["postal code"] || "",
+      city:         r["ort"] || r["city"] || "",
+      payment:      "paypal",
+      status:       "Bezahlt",
+    }));
+    setCsvResult(mapped);
+    setErr("");
+  };
+
+  const importCSVRows = async () => {
+    if (!csvResult?.length) return;
+    setSaving(true); setErr("");
+    let count = 0;
+    for (const row of csvResult) {
+      const ok = await saveOrder(row);
+      if (ok) count++;
+    }
+    setSaved(true);
+    setCsvText(""); setCsvResult(null);
+    setErr(`${count} von ${csvResult.length} Bestellungen importiert.`);
+    setSaving(false);
+    setTimeout(()=>setSaved(false), 3000);
+  };
+
+  return (
+    <>
+      <div className="be-hdr">
+        <div>
+          <div className="be-ttl" style={{display:"flex",alignItems:"center",gap:".6rem"}}>
+            <span style={{color:"#e53238",fontSize:"1.1rem",fontWeight:900}}>eBay</span> Import
+          </div>
+          <div style={{fontSize:".78rem",color:"var(--mu)",marginTop:".15rem"}}>
+            Zentralisierte Abwicklung · {ebayOrders.length} eBay-Bestellungen
+          </div>
+        </div>
+        <div style={{display:"flex",gap:".5rem"}}>
+          <span style={{fontSize:".75rem",color:"var(--mu)",display:"flex",alignItems:"center",gap:".3rem"}}>
+            <span style={{width:"8px",height:"8px",borderRadius:"50%",background:"#e53238",display:"inline-block"}}/>
+            eBay
+          </span>
+          <span style={{fontSize:".75rem",color:"var(--mu)",display:"flex",alignItems:"center",gap:".3rem"}}>
+            <span style={{width:"8px",height:"8px",borderRadius:"50%",background:"var(--acc)",display:"inline-block"}}/>
+            Shop
+          </span>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:".3rem",marginBottom:"1.5rem",background:"var(--sf2)",borderRadius:"8px",padding:".2rem",width:"fit-content"}}>
+        {[["manual","Manuell eingeben"],["csv","CSV Import"],["list","eBay Bestellungen"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setTab(k)}
+            style={{padding:".45rem 1rem",borderRadius:"6px",fontWeight:600,fontSize:".83rem",cursor:"pointer",border:"none",
+              background:tab===k?"var(--sf)":"none",color:tab===k?"var(--tx)":"var(--mu)",
+              boxShadow:tab===k?"0 1px 4px rgba(0,0,0,.3)":"none",transition:"all .18s"}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {err && <div className={`auth-${err.startsWith("Fehler")?"err":"ok"}`} style={{marginBottom:"1rem"}}>{err}</div>}
+
+      {/* ── TAB: MANUELL ── */}
+      {tab === "manual" && (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1.5rem"}}>
+          {/* Artikel */}
+          <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"12px",padding:"1.2rem"}}>
+            <div style={{fontSize:".72rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:".85rem"}}>
+              Artikelinformationen
+            </div>
+            <div className="fg"><label>Artikelbezeichnung *</label>
+              <input className="fi" placeholder="z.B. Pioneer MVH-S420BT" value={form.itemName} onChange={e=>sf("itemName",e.target.value)}/>
+            </div>
+            {suggestion && (
+              <div style={{background:"rgba(232,160,32,.08)",border:"1px solid rgba(232,160,32,.2)",borderRadius:"7px",padding:".5rem .75rem",fontSize:".75rem",marginBottom:".6rem",display:"flex",alignItems:"center",gap:".5rem"}}>
+                <I d={ICONS.check} size={12} style={{color:"var(--acc)"}}/> Shop-Artikel gefunden: <strong>{suggestion.name}</strong>
+                <button className="btn btn-o btn-sm" style={{marginLeft:"auto",padding:".15rem .5rem",fontSize:".7rem"}}
+                  onClick={()=>sf("itemName", suggestion.name)}>Übernehmen</button>
+              </div>
+            )}
+            <div className="fr">
+              <div className="fg"><label>EAN (optional)</label>
+                <input className="fi" style={{fontFamily:"monospace"}} placeholder="Barcode" value={form.ean} onChange={e=>sf("ean",e.target.value)}/>
+              </div>
+              <div className="fg"><label>eBay Artikel-Nr.</label>
+                <input className="fi" style={{fontFamily:"monospace"}} placeholder="z.B. 123456789012" value={form.ebayItemId} onChange={e=>sf("ebayItemId",e.target.value)}/>
+              </div>
+            </div>
+            <div className="fr">
+              <div className="fg"><label>Menge</label>
+                <input className="fi" type="number" min="1" value={form.qty} onChange={e=>sf("qty",e.target.value)}/>
+              </div>
+              <div className="fg"><label>Verkaufspreis (€) *</label>
+                <input className="fi" type="number" step="0.01" placeholder="0.00" value={form.price} onChange={e=>sf("price",e.target.value)}/>
+              </div>
+            </div>
+            <div className="fr">
+              <div className="fg"><label>eBay Bestellnummer</label>
+                <input className="fi" style={{fontFamily:"monospace"}} placeholder="z.B. 01-12345-67890" value={form.ebayOrderId} onChange={e=>sf("ebayOrderId",e.target.value)}/>
+              </div>
+              <div className="fg"><label>Zahlungsart</label>
+                <select className="fi" value={form.payment} onChange={e=>sf("payment",e.target.value)}>
+                  <option value="paypal">PayPal</option>
+                  <option value="klarna">Klarna</option>
+                  <option value="vorkasse">Überweisung</option>
+                  <option value="ebay_checkout">eBay Checkout</option>
+                </select>
+              </div>
+            </div>
+            <div className="fg"><label>Status</label>
+              <select className="fi" value={form.status} onChange={e=>sf("status",e.target.value)}>
+                <option value="Neu">Neu</option>
+                <option value="Bezahlt">Bezahlt</option>
+                <option value="Versendet">Versendet</option>
+                <option value="Storniert">Storniert</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Käufer */}
+          <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"12px",padding:"1.2rem"}}>
+            <div style={{fontSize:".72rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:".85rem"}}>
+              Käufer / Lieferadresse
+            </div>
+            <div className="fg"><label>Käufer Name *</label>
+              <input className="fi" placeholder="Max Mustermann" value={form.buyerName} onChange={e=>sf("buyerName",e.target.value)}/>
+            </div>
+            <div className="fg"><label>E-Mail (optional)</label>
+              <input className="fi" type="email" placeholder="max@beispiel.de" value={form.buyerEmail} onChange={e=>sf("buyerEmail",e.target.value)}/>
+            </div>
+            <div className="fg"><label>Straße & Hausnummer</label>
+              <input className="fi" placeholder="Musterstraße 12" value={form.street} onChange={e=>sf("street",e.target.value)}/>
+            </div>
+            <div className="fr">
+              <div className="fg"><label>PLZ</label>
+                <input className="fi" placeholder="12345" value={form.zip} onChange={e=>sf("zip",e.target.value)}/>
+              </div>
+              <div className="fg"><label>Ort</label>
+                <input className="fi" placeholder="Berlin" value={form.city} onChange={e=>sf("city",e.target.value)}/>
+              </div>
+            </div>
+            <div className="fg"><label>Land</label>
+              <select className="fi" value={form.country} onChange={e=>sf("country",e.target.value)}>
+                {["DE","AT","CH","FR","IT","ES","NL","BE","PL","GB","US","Sonstiges"].map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            {/* Vorschau */}
+            {form.price && form.qty && (
+              <div style={{marginTop:"1rem",padding:".75rem",background:"var(--sf2)",borderRadius:"8px",fontSize:".82rem"}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:".3rem"}}>
+                  <span style={{color:"var(--mu)"}}>Artikelpreis</span>
+                  <span>{fmt(parseFloat(form.price)||0)}</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:".3rem"}}>
+                  <span style={{color:"var(--mu)"}}>Menge</span>
+                  <span>× {form.qty}</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontWeight:700,borderTop:"1px solid var(--br)",paddingTop:".3rem",color:"var(--acc)"}}>
+                  <span>Gesamtbetrag</span>
+                  <span>{fmt((parseFloat(form.price)||0) * (parseInt(form.qty)||1))}</span>
+                </div>
+              </div>
+            )}
+
+            <button className="btn btn-p" style={{width:"100%",justifyContent:"center",marginTop:"1rem"}}
+              onClick={handleManualSave} disabled={saving}>
+              {saved ? <><I d={ICONS.check} size={15}/> Gespeichert!</>
+               : saving ? "Speichert…"
+               : <><I d={ICONS.plus} size={15}/> eBay-Bestellung hinzufügen</>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: CSV IMPORT ── */}
+      {tab === "csv" && (
+        <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"12px",padding:"1.4rem"}}>
+          <div style={{fontSize:".72rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:".85rem"}}>
+            eBay CSV Import
+          </div>
+          <div style={{fontSize:".8rem",color:"var(--mu)",marginBottom:"1rem",lineHeight:1.7,background:"var(--sf2)",borderRadius:"8px",padding:".75rem .9rem"}}>
+            <strong style={{color:"var(--tx)"}}>Unterstützte Spalten</strong> (eBay Verkäufe-Export):<br/>
+            <code style={{fontSize:".72rem"}}>Bestellnummer, Artikel-Nr, Artikelbezeichnung, Menge, Gesamtbetrag, Käufer, Käufer-Email, Straße, PLZ, Ort</code><br/>
+            <span style={{fontSize:".72rem"}}>Tipp: eBay → Verkäufe → Exportieren → CSV herunterladen</span>
+          </div>
+          <div className="fg"><label>CSV Inhalt einfügen</label>
+            <textarea className="fi" rows={10} style={{fontFamily:"monospace",fontSize:".75rem",resize:"vertical"}}
+              placeholder={"Bestellnummer,Artikel-Nr,Artikelbezeichnung,Menge,Gesamtbetrag,Käufer,Käufer-Email,Straße,PLZ,Ort\n01-12345-67890,123456789012,Pioneer MVH-S420BT,1,79.90,Max Mustermann,max@web.de,Musterstr. 1,12345,Berlin"}
+              value={csvText} onChange={e=>setCsvText(e.target.value)}/>
+          </div>
+          <div style={{display:"flex",gap:".75rem",marginTop:".75rem"}}>
+            <button className="btn btn-o" onClick={parseCSV}>CSV prüfen</button>
+            {csvResult && (
+              <button className="btn btn-p" onClick={importCSVRows} disabled={saving}>
+                {saving?"Importiert…":<><I d={ICONS.upload} size={14}/> {csvResult.length} Bestellungen importieren</>}
+              </button>
+            )}
+          </div>
+          {/* CSV Preview */}
+          {csvResult && (
+            <div style={{marginTop:"1rem"}}>
+              <div style={{fontSize:".78rem",fontWeight:700,marginBottom:".5rem",color:"var(--ok)"}}>
+                <I d={ICONS.check} size={13}/> {csvResult.length} Zeilen erkannt — Vorschau:
+              </div>
+              <div style={{maxHeight:"280px",overflowY:"auto"}}>
+                <table className="tbl" style={{fontSize:".75rem"}}>
+                  <thead><tr><th>#</th><th>Artikel</th><th>Menge</th><th>Preis</th><th>Käufer</th><th>PLZ Ort</th><th>eBay-Nr</th></tr></thead>
+                  <tbody>
+                    {csvResult.map((r,i)=>(
+                      <tr key={i}>
+                        <td style={{color:"var(--mu)"}}>{i+1}</td>
+                        <td style={{fontWeight:500}}>{r.itemName||"?"}</td>
+                        <td>{r.qty}</td>
+                        <td style={{color:"var(--acc)",fontWeight:700}}>{fmt(parseFloat(r.price)||0)}</td>
+                        <td>{r.buyerName||"—"}</td>
+                        <td style={{fontSize:".7rem",color:"var(--mu)"}}>{r.zip} {r.city}</td>
+                        <td style={{fontFamily:"monospace",fontSize:".68rem",color:"var(--mu)"}}>{r.ebayOrderId||"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB: EBAY BESTELLUNGEN ── */}
+      {tab === "list" && (
+        <>
+          {ebayOrders.length === 0 ? (
+            <div className="acc-empty"><I d={ICONS.box} size={40}/><p style={{marginTop:"1rem"}}>Noch keine eBay-Bestellungen importiert.</p></div>
+          ) : (
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Bestell-ID</th>
+                    <th>eBay-Nr</th>
+                    <th>Artikel</th>
+                    <th>Käufer</th>
+                    <th>Datum</th>
+                    <th>Betrag</th>
+                    <th>Zahlung</th>
+                    <th>Status</th>
+                    <th>Aktionen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ebayOrders.map(o=>(
+                    <tr key={o.id}>
+                      <td>
+                        <div style={{fontFamily:"monospace",fontSize:".75rem",color:"var(--acc)"}}>{o.id}</div>
+                        <div style={{fontSize:".65rem",background:"#e5323818",color:"#e53238",border:"1px solid #e5323830",borderRadius:"3px",padding:"0 .35rem",display:"inline-block",marginTop:".15rem",fontWeight:700}}>eBay</div>
+                      </td>
+                      <td style={{fontFamily:"monospace",fontSize:".72rem",color:"var(--mu)"}}>{o.ebay_order_id||"—"}</td>
+                      <td>
+                        {(o.items||[]).map(i=>(
+                          <div key={i.id} style={{fontSize:".82rem"}}>{i.name} <span style={{opacity:.6}}>×{i.qty}</span></div>
+                        ))}
+                      </td>
+                      <td>
+                        <div style={{fontSize:".82rem",fontWeight:500}}>{o.customer?.name||"—"}</div>
+                        <div style={{fontSize:".72rem",color:"var(--mu)"}}>{o.customer?.zip} {o.customer?.city}</div>
+                      </td>
+                      <td style={{fontSize:".78rem",color:"var(--mu)"}}>{o.date}</td>
+                      <td style={{color:"var(--acc)",fontWeight:700}}>{fmt(o.total)}</td>
+                      <td style={{fontSize:".78rem",color:"var(--mu)"}}>{o.payment}</td>
+                      <td><span className={`spill ${statusClass[o.status]||"s-new"}`}>{o.status}</span>
+                        {o.carrier && <div style={{fontSize:".68rem",color:"var(--mu)",marginTop:".15rem"}}>{o.carrier}</div>}
+                        {o.tracking_number && <div style={{fontSize:".68rem",fontFamily:"monospace",color:"var(--inf)"}}>{o.tracking_number}</div>}
+                      </td>
+                      <td>
+                        <div className="acts">
+                          <button className="btn btn-o btn-sm" onClick={()=>setOrderModal(o)}>
+                            <I d={ICONS.edit} size={13}/> Details
+                          </button>
+                          <button className="btn btn-i btn-sm" onClick={()=>setInvoiceModal(o)}>
+                            <I d={ICONS.invoice} size={13}/>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </>
   );
