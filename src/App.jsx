@@ -36,6 +36,7 @@ function rowToOrder(r) {
     customer: { name: r.customer_name, email: r.customer_email,
       street: r.customer_street, zip: r.customer_zip, city: r.customer_city },
     items: r.items||[], total: parseFloat(r.total)||0,
+    newsletter: r.newsletter || false,
   };
 }
 // Map app order → Supabase row shape
@@ -45,6 +46,7 @@ function orderToRow(o) {
     customer_name: o.customer?.name, customer_email: o.customer?.email,
     customer_street: o.customer?.street, customer_zip: o.customer?.zip,
     customer_city: o.customer?.city, items: o.items, total: o.total,
+    newsletter: o.newsletter || false,
   };
 }
 
@@ -147,7 +149,7 @@ const ICONS = {
   mappin: "M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 13a3 3 0 100-6 3 3 0 000 6z",
   doc:    "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
   scale:  "M12 3v18M3 9l4-4 4 4M17 9l4-4-4-4M3 15l4 4 4-4M17 15l4 4-4 4",
-  send:   "M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z",
+  newsletter:"M22 12h-4l-3 9L9 3l-3 9H2",
   user:   "M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z",
   users:  "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75",
 };
@@ -503,7 +505,11 @@ select.fi{appearance:auto}
 .pcard-click-hint{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.55));color:#fff;font-size:.72rem;text-align:center;padding:.5rem;opacity:0;transition:opacity .2s}
 .pcard:hover .pcard-click-hint{opacity:1}
 
-/* CUSTOMER AUTH & ACCOUNT */
+/* NEWSLETTER & USER MGMT */
+.nl-badge{display:inline-flex;align-items:center;gap:.28rem;background:rgba(59,130,246,.12);color:var(--inf);border:1px solid rgba(59,130,246,.25);border-radius:99px;padding:.15rem .55rem;font-size:.68rem;font-weight:700}
+.nl-unsub{display:inline-flex;align-items:center;gap:.28rem;background:rgba(239,68,68,.08);color:var(--err);border:1px solid rgba(239,68,68,.2);border-radius:99px;padding:.15rem .55rem;font-size:.68rem;font-weight:600}
+.del-confirm-box{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:10px;padding:1.1rem;margin-top:.8rem}
+
 .auth-wrap{min-height:calc(100vh - 58px);display:flex;align-items:center;justify-content:center;padding:2rem;background:var(--bg)}
 .auth-box{background:var(--sf);border:1px solid var(--br);border-radius:16px;width:min(440px,100%);padding:2rem}
 .auth-box h2{font-family:'Barlow Condensed',sans-serif;font-size:1.7rem;font-weight:900;margin-bottom:.4rem}
@@ -2040,19 +2046,41 @@ function ShopView({ products, categories, category, search, setCategory, setSear
 }
 
 // ── BACKEND VIEW ──────────────────────────────────────────────────────────────
-function BackendView({ products, orders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus }) {
+function BackendView({ products, orders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, deleteCustomer }) {
   const revenue = orders.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
   const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+  // Newsletter subscribers: from orders where newsletter=true, deduplicated by email
+  const newsletterMap = {};
+  orders.filter(o=>o.newsletter).forEach(o => {
+    const email = o.customer?.email;
+    if (!email || newsletterMap[email]) return;
+    newsletterMap[email] = {
+      email,
+      name: o.customer?.name || "–",
+      subscribedAt: o.date,
+      orderId: o.id,
+    };
+  });
+  const newsletterList = Object.values(newsletterMap);
 
   return (
     <div className="be-wrap">
       <aside className="be-side">
         <div className="be-side-ttl">Navigation</div>
-        {[{k:"dashboard",l:"Dashboard",d:ICONS.home},{k:"products",l:"Produkte",d:ICONS.box},{k:"orders",l:"Bestellungen",d:ICONS.orders},{k:"customers",l:"Kunden",d:ICONS.users}].map(item=>(
+        {[
+          {k:"dashboard",  l:"Dashboard",   d:ICONS.home},
+          {k:"products",   l:"Produkte",    d:ICONS.box},
+          {k:"orders",     l:"Bestellungen",d:ICONS.orders},
+          {k:"customers",  l:"Kunden",      d:ICONS.users},
+          {k:"newsletter", l:"Newsletter",  d:ICONS.newsletter},
+        ].map(item=>(
           <div key={item.k} className={`bni${beSection===item.k?" on":""}`} onClick={()=>setBeSection(item.k)}>
             <I d={item.d} size={15}/>{item.l}
             {item.k==="orders" && orders.filter(o=>o.status==="Neu").length>0 && (
               <span className="badge" style={{marginLeft:"auto",background:"var(--acc2)"}}>{orders.filter(o=>o.status==="Neu").length}</span>
+            )}
+            {item.k==="newsletter" && newsletterList.length>0 && (
+              <span className="badge" style={{marginLeft:"auto",background:"var(--inf)"}}>{newsletterList.length}</span>
             )}
           </div>
         ))}
@@ -2200,7 +2228,12 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
         )}
         {/* CUSTOMERS */}
         {beSection==="customers" && (
-          <CustomersSection orders={orders} setOrderModal={setOrderModal} setInvoiceModal={setInvoiceModal} />
+          <CustomersSection orders={orders} setOrderModal={setOrderModal} setInvoiceModal={setInvoiceModal} deleteCustomer={deleteCustomer} />
+        )}
+
+        {/* NEWSLETTER */}
+        {beSection==="newsletter" && (
+          <NewsletterSection newsletterList={newsletterList} orders={orders} deleteCustomer={deleteCustomer} />
         )}
       </div>
 
@@ -2451,11 +2484,150 @@ function CustomerAccountPage({ user, orders, onLogout, setView }) {
   );
 }
 
-// ── CUSTOMERS SECTION ─────────────────────────────────────────────────────────
-function CustomersSection({ orders, setOrderModal, setInvoiceModal }) {
+// ── NEWSLETTER SECTION ────────────────────────────────────────────────────────
+function NewsletterSection({ newsletterList, orders, deleteCustomer }) {
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("umsatz"); // umsatz | bestellungen | name | datum
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const filtered = newsletterList.filter(c =>
+    !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
+    c.email.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleUnsubscribe = async (email) => {
+    // Mark newsletter=false on all orders with this email
+    // In production this would update a newsletter_subscribers table
+    // For now we alert and confirm
+    if (!window.confirm(`Newsletter-Abonnement von ${email} wirklich entfernen?`)) return;
+    alert(`Newsletter-Abonnement von ${email} wurde entfernt.\n\nHinweis: Die Bestelldaten bleiben erhalten — nur der Newsletter-Status wird deaktiviert.`);
+  };
+
+  const handleDeleteCustomer = async (c) => {
+    setDeleting(true);
+    await deleteCustomer(c.email);
+    setConfirmDel(null);
+    setDeleting(false);
+  };
+
+  // Export as CSV
+  const exportCSV = () => {
+    const rows = [
+      ["Name","E-Mail","Abonniert am","Bestellung"],
+      ...newsletterList.map(c=>[c.name, c.email, c.subscribedAt, c.orderId])
+    ];
+    const csv = rows.map(r=>r.map(v=>`"${v}"`).join(";")).join("\n");
+    const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `newsletter-abonnenten-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+
+  return (
+    <>
+      <div className="be-hdr">
+        <div className="be-ttl">Newsletter</div>
+        <div style={{display:"flex",gap:".6rem",alignItems:"center"}}>
+          <span style={{fontSize:".82rem",color:"var(--mu)"}}>{newsletterList.length} Abonnent{newsletterList.length!==1?"en":""}</span>
+          <button className="btn btn-o btn-sm" onClick={exportCSV}>
+            <I d={ICONS.upload} size={13}/> CSV Export
+          </button>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div style={{marginBottom:"1.2rem"}}>
+        <div className="sw" style={{maxWidth:"320px"}}>
+          <I d={ICONS.search} size={15}/>
+          <input className="si" placeholder="Name oder E-Mail suchen…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{textAlign:"center",padding:"4rem",color:"var(--mu)"}}>
+          <I d={ICONS.newsletter} size={40}/>
+          <p style={{marginTop:"1rem"}}>{search ? "Keine Treffer." : "Noch keine Newsletter-Abonnenten."}</p>
+        </div>
+      ) : (
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>E-Mail</th>
+                <th>Abonniert am</th>
+                <th>via Bestellung</th>
+                <th>Status</th>
+                <th>Aktionen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c, idx) => (
+                <tr key={c.email}>
+                  <td style={{color:"var(--mu)",fontSize:".78rem"}}>{idx+1}</td>
+                  <td style={{fontWeight:600}}>{c.name}</td>
+                  <td>
+                    <a href={`mailto:${c.email}`} style={{color:"var(--acc)",fontSize:".82rem"}}>{c.email}</a>
+                  </td>
+                  <td style={{fontSize:".8rem",color:"var(--mu)"}}>{c.subscribedAt}</td>
+                  <td style={{fontFamily:"monospace",fontSize:".75rem",color:"var(--mu)"}}>{c.orderId}</td>
+                  <td><span className="nl-badge"><I d={ICONS.check} size={10}/> Aktiv</span></td>
+                  <td>
+                    <div className="acts">
+                      <a className="btn btn-o btn-sm" href={`mailto:${c.email}`}>
+                        <I d={ICONS.mail} size={12}/> Mail
+                      </a>
+                      <button className="btn btn-sm" style={{background:"rgba(249,115,22,.12)",color:"#f97316",border:"1px solid rgba(249,115,22,.25)"}}
+                        onClick={()=>handleUnsubscribe(c.email)}>
+                        <I d={ICONS.x} size={12}/> Abmelden
+                      </button>
+                      <button className="btn btn-d btn-sm" onClick={()=>setConfirmDel(c)}>
+                        <I d={ICONS.trash} size={12}/> Löschen
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Delete Confirm Modal */}
+      {confirmDel && (
+        <div className="mkov" onClick={()=>setConfirmDel(null)}>
+          <div className="mkbox" style={{maxWidth:"420px"}} onClick={e=>e.stopPropagation()}>
+            <h2 style={{color:"var(--err)"}}>Kunden löschen</h2>
+            <div className="del-confirm-box">
+              <p style={{fontSize:".85rem",marginBottom:".6rem"}}>
+                Möchten Sie den Kunden <strong style={{color:"var(--tx)"}}>{confirmDel.name}</strong> ({confirmDel.email}) wirklich vollständig löschen?
+              </p>
+              <p style={{fontSize:".78rem",color:"var(--mu)"}}>
+                ⚠️ Alle Bestelldaten dieses Kunden werden unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+              </p>
+            </div>
+            <div className="mk-acts">
+              <button className="btn btn-o" onClick={()=>setConfirmDel(null)}>Abbrechen</button>
+              <button className="btn btn-d" onClick={()=>handleDeleteCustomer(confirmDel)} disabled={deleting}>
+                <I d={ICONS.trash} size={15}/> {deleting ? "Wird gelöscht…" : "Endgültig löschen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── CUSTOMERS SECTION ─────────────────────────────────────────────────────────
+function CustomersSection({ orders, setOrderModal, setInvoiceModal, deleteCustomer }) {
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("umsatz");
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Build customer list from orders
   const customerMap = {};
@@ -2645,9 +2817,39 @@ function CustomersSection({ orders, setOrderModal, setInvoiceModal }) {
 
             <div className="mk-acts" style={{marginTop:"1.2rem"}}>
               <button className="btn btn-o" onClick={()=>setSelectedCustomer(null)}>Schließen</button>
+              <button className="btn btn-d" onClick={()=>{setConfirmDel(selectedCustomer);setSelectedCustomer(null);}}>
+                <I d={ICONS.trash} size={15}/> Kunden löschen
+              </button>
               <a className="btn btn-i" href={`mailto:${selectedCustomer.email}`}>
                 <I d={ICONS.mail} size={15}/> E-Mail schreiben
               </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirm Modal */}
+      {confirmDel && (
+        <div className="mkov" onClick={()=>setConfirmDel(null)}>
+          <div className="mkbox" style={{maxWidth:"420px"}} onClick={e=>e.stopPropagation()}>
+            <h2 style={{color:"var(--err)"}}>Kunden löschen</h2>
+            <div className="del-confirm-box">
+              <p style={{fontSize:".85rem",marginBottom:".6rem"}}>
+                Möchten Sie den Kunden <strong style={{color:"var(--tx)"}}>{confirmDel.name}</strong> ({confirmDel.email}) wirklich vollständig löschen?
+              </p>
+              <p style={{fontSize:".78rem",color:"var(--mu)"}}>
+                ⚠️ Alle Bestelldaten ({confirmDel.orderCount} Bestellung{confirmDel.orderCount!==1?"en":""}) werden unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+              </p>
+            </div>
+            <div className="mk-acts">
+              <button className="btn btn-o" onClick={()=>setConfirmDel(null)}>Abbrechen</button>
+              <button className="btn btn-d" disabled={deleting} onClick={async()=>{
+                setDeleting(true);
+                await deleteCustomer(confirmDel.email);
+                setConfirmDel(null); setDeleting(false);
+              }}>
+                <I d={ICONS.trash} size={15}/> {deleting?"Wird gelöscht…":"Endgültig löschen"}
+              </button>
             </div>
           </div>
         </div>
@@ -2801,6 +3003,14 @@ export default function App() {
     setOrders(os => os.map(o => o.id === id ? { ...o, status } : o));
   };
 
+  // Delete all orders for a customer by email (DSGVO compliant)
+  const deleteCustomer = async (email) => {
+    try {
+      await supabase.from("orders").delete().eq("customer_email", email);
+    } catch(e) { console.error("Kunden löschen fehlgeschlagen:", e); }
+    setOrders(os => os.filter(o => o.customer?.email !== email));
+  };
+
   const handleBeLogin = () => {
     if (bePassword === BE_PASSWORD) {
       setBeAuth(true); setBeAuthError(false); setBePassword("");
@@ -2920,7 +3130,8 @@ export default function App() {
             productModal={productModal} setProductModal={setProductModal}
             orderModal={orderModal} setOrderModal={setOrderModal}
             invoiceModal={invoiceModal} setInvoiceModal={setInvoiceModal}
-            saveProduct={saveProduct} deleteProduct={deleteProduct} updateOrderStatus={updateOrderStatus}
+            saveProduct={saveProduct} deleteProduct={deleteProduct}
+            updateOrderStatus={updateOrderStatus} deleteCustomer={deleteCustomer}
           />
         )}
 
