@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
@@ -503,7 +503,42 @@ select.fi{appearance:auto}
 .pcard-click-hint{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.55));color:#fff;font-size:.72rem;text-align:center;padding:.5rem;opacity:0;transition:opacity .2s}
 .pcard:hover .pcard-click-hint{opacity:1}
 
-.cust-card{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:1.2rem;margin-bottom:1rem;cursor:pointer;transition:all .18s}
+/* CUSTOMER AUTH & ACCOUNT */
+.auth-wrap{min-height:calc(100vh - 58px);display:flex;align-items:center;justify-content:center;padding:2rem;background:var(--bg)}
+.auth-box{background:var(--sf);border:1px solid var(--br);border-radius:16px;width:min(440px,100%);padding:2rem}
+.auth-box h2{font-family:'Barlow Condensed',sans-serif;font-size:1.7rem;font-weight:900;margin-bottom:.4rem}
+.auth-box p{color:var(--mu);font-size:.85rem;margin-bottom:1.4rem}
+.auth-tabs{display:grid;grid-template-columns:1fr 1fr;gap:0;background:var(--sf2);border-radius:8px;padding:.2rem;margin-bottom:1.3rem}
+.auth-tab{padding:.5rem;border-radius:6px;font-size:.85rem;font-weight:600;cursor:pointer;text-align:center;color:var(--mu);transition:all .18s;background:none;border:none}
+.auth-tab.on{background:var(--sf);color:var(--tx);box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.auth-err{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:.65rem .9rem;font-size:.8rem;color:var(--err);margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem}
+.auth-ok{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);border-radius:8px;padding:.65rem .9rem;font-size:.8rem;color:var(--ok);margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem}
+
+/* CUSTOMER ACCOUNT PAGE */
+.acc-wrap{max-width:860px;margin:0 auto;padding:2rem 1.8rem}
+.acc-header{display:flex;align-items:center;gap:1.2rem;margin-bottom:2rem;padding:1.5rem;background:var(--sf);border:1px solid var(--br);border-radius:12px;flex-wrap:wrap}
+.acc-avatar{width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--acc),#e03010);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:1.3rem;color:#000;flex-shrink:0}
+.acc-name{font-family:'Barlow Condensed',sans-serif;font-size:1.4rem;font-weight:900}
+.acc-email{font-size:.82rem;color:var(--mu)}
+.acc-order-card{background:var(--sf);border:1px solid var(--br);border-radius:10px;padding:1.1rem 1.2rem;margin-bottom:.9rem;transition:border-color .18s}
+.acc-order-card:hover{border-color:rgba(232,160,32,.3)}
+.acc-order-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:.55rem;flex-wrap:wrap;gap:.5rem}
+.acc-order-id{font-family:monospace;font-size:.8rem;color:var(--acc);font-weight:700}
+.acc-order-items{font-size:.8rem;color:var(--mu);margin-top:.35rem;line-height:1.6}
+.acc-order-total{font-family:'Barlow Condensed',sans-serif;font-size:1.2rem;font-weight:900;color:var(--acc)}
+.acc-status-timeline{display:flex;align-items:flex-start;margin-top:.85rem;padding-top:.75rem;border-top:1px solid var(--br);position:relative}
+.acc-tl-step{display:flex;flex-direction:column;align-items:center;flex:1;position:relative}
+.acc-tl-dot{width:22px;height:22px;border-radius:50%;border:2px solid var(--br);background:var(--sf2);display:flex;align-items:center;justify-content:center;z-index:1;flex-shrink:0;transition:all .2s}
+.acc-tl-dot.done{background:var(--ok);border-color:var(--ok);color:#fff}
+.acc-tl-dot.active{background:var(--acc);border-color:var(--acc);color:#000;box-shadow:0 0 0 4px rgba(232,160,32,.2)}
+.acc-tl-dot.canc{background:var(--err);border-color:var(--err);color:#fff}
+.acc-tl-label{font-size:.63rem;color:var(--mu);margin-top:.3rem;text-align:center;font-weight:600;line-height:1.3}
+.acc-tl-label.done{color:var(--ok)}.acc-tl-label.active{color:var(--acc)}.acc-tl-label.canc{color:var(--err)}
+.acc-tl-line{flex:1;height:2px;background:var(--br);margin-top:10px}
+.acc-tl-line.done{background:var(--ok)}
+.acc-empty{text-align:center;padding:3rem;color:var(--mu)}
+
+/* CUSTOMER MANAGEMENT */
 .cust-card:hover{border-color:var(--acc);transform:translateY(-1px);box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .cust-card-hdr{display:flex;align-items:center;gap:1rem;margin-bottom:.75rem}
 .cust-avatar{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,var(--acc),#e03010);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:1.1rem;color:#000;flex-shrink:0}
@@ -2177,6 +2212,245 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
   );
 }
 
+// ── CUSTOMER AUTH PAGE ────────────────────────────────────────────────────────
+function CustomerAuthPage({ onLogin, setView }) {
+  const [tab, setTab] = useState("login"); // login | register
+  const [form, setForm] = useState({ name:"", email:"", password:"", password2:"" });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const sf = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const handleLogin = async () => {
+    if (!form.email || !form.password) { setError("Bitte E-Mail und Passwort eingeben."); return; }
+    setLoading(true); setError("");
+    try {
+      const { data, error: err } = await supabase.auth.signInWithPassword({
+        email: form.email, password: form.password,
+      });
+      if (err) throw err;
+      onLogin(data.user);
+    } catch(e) {
+      setError(e.message === "Invalid login credentials"
+        ? "E-Mail oder Passwort ist falsch."
+        : e.message || "Anmeldung fehlgeschlagen.");
+    }
+    setLoading(false);
+  };
+
+  const handleRegister = async () => {
+    if (!form.name.trim()) { setError("Bitte Ihren Namen eingeben."); return; }
+    if (!form.email.includes("@")) { setError("Bitte eine gültige E-Mail eingeben."); return; }
+    if (form.password.length < 6) { setError("Passwort muss mindestens 6 Zeichen haben."); return; }
+    if (form.password !== form.password2) { setError("Passwörter stimmen nicht überein."); return; }
+    setLoading(true); setError("");
+    try {
+      const { data, error: err } = await supabase.auth.signUp({
+        email: form.email, password: form.password,
+        options: { data: { full_name: form.name } },
+      });
+      if (err) throw err;
+      if (data.user && !data.session) {
+        setSuccess("Registrierung erfolgreich! Bitte bestätigen Sie Ihre E-Mail-Adresse und loggen Sie sich dann ein.");
+        setTab("login");
+      } else if (data.session) {
+        onLogin(data.user);
+      }
+    } catch(e) {
+      setError(e.message.includes("already registered")
+        ? "Diese E-Mail-Adresse ist bereits registriert."
+        : e.message || "Registrierung fehlgeschlagen.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="auth-wrap">
+      <div className="auth-box">
+        <div style={{textAlign:"center",marginBottom:"1.3rem"}}>
+          <div style={{width:"48px",height:"48px",background:"rgba(232,160,32,.12)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto .8rem",color:"var(--acc)"}}>
+            <I d={ICONS.user} size={22}/>
+          </div>
+          <h2 style={{marginBottom:".2rem"}}>{tab==="login" ? "Mein Konto" : "Registrieren"}</h2>
+          <p style={{marginBottom:0}}>{tab==="login" ? "Einloggen um Bestellungen einzusehen" : "Kostenloses Kundenkonto erstellen"}</p>
+        </div>
+
+        <div className="auth-tabs">
+          <button className={`auth-tab${tab==="login"?" on":""}`} onClick={()=>{setTab("login");setError("");setSuccess("");}}>Einloggen</button>
+          <button className={`auth-tab${tab==="register"?" on":""}`} onClick={()=>{setTab("register");setError("");setSuccess("");}}>Registrieren</button>
+        </div>
+
+        {error && <div className="auth-err"><I d={ICONS.x} size={14}/>{error}</div>}
+        {success && <div className="auth-ok"><I d={ICONS.check} size={14}/>{success}</div>}
+
+        {tab === "register" && (
+          <div className="fg">
+            <label>Vor- & Nachname</label>
+            <input className="fi" placeholder="Max Mustermann" value={form.name} onChange={e=>sf("name",e.target.value)}/>
+          </div>
+        )}
+
+        <div className="fg">
+          <label>E-Mail-Adresse</label>
+          <input className="fi" type="email" placeholder="max@beispiel.de" value={form.email} onChange={e=>sf("email",e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&tab==="login"&&handleLogin()}/>
+        </div>
+        <div className="fg">
+          <label>Passwort</label>
+          <input className="fi" type="password" placeholder={tab==="register"?"Mindestens 6 Zeichen":"Ihr Passwort"} value={form.password}
+            onChange={e=>sf("password",e.target.value)} onKeyDown={e=>e.key==="Enter"&&tab==="login"&&handleLogin()}/>
+        </div>
+
+        {tab === "register" && (
+          <div className="fg">
+            <label>Passwort bestätigen</label>
+            <input className="fi" type="password" placeholder="Passwort wiederholen" value={form.password2}
+              onChange={e=>sf("password2",e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleRegister()}/>
+          </div>
+        )}
+
+        <button className="btn btn-p" style={{width:"100%",justifyContent:"center",marginTop:".5rem",padding:".75rem",fontSize:"1rem"}}
+          onClick={tab==="login"?handleLogin:handleRegister} disabled={loading}>
+          {loading ? "Bitte warten…" : tab==="login" ? "Einloggen" : "Konto erstellen"}
+        </button>
+
+        <div style={{textAlign:"center",marginTop:"1rem",fontSize:".78rem",color:"var(--mu)"}}>
+          {tab==="login"
+            ? <>Noch kein Konto? <button className="nb" style={{padding:"0",color:"var(--acc)",display:"inline",fontSize:".78rem"}} onClick={()=>{setTab("register");setError("");}}>Jetzt registrieren</button></>
+            : <>Bereits registriert? <button className="nb" style={{padding:"0",color:"var(--acc)",display:"inline",fontSize:".78rem"}} onClick={()=>{setTab("login");setError("");}}>Einloggen</button></>
+          }
+        </div>
+        <div style={{textAlign:"center",marginTop:".6rem"}}>
+          <button className="nb" style={{fontSize:".78rem",color:"var(--mu)"}} onClick={()=>setView("shop")}>← Zurück zum Shop</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── CUSTOMER ACCOUNT PAGE ─────────────────────────────────────────────────────
+function CustomerAccountPage({ user, orders, onLogout, setView }) {
+  const initials = (user?.user_metadata?.full_name || user?.email || "K")
+    .split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
+  const name = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Kunde";
+  const email = user?.email || "";
+
+  // Filter orders for this customer by email
+  const myOrders = orders.filter(o =>
+    o.customer?.email?.toLowerCase() === email.toLowerCase()
+  ).sort((a,b) => b.id.localeCompare(a.id));
+
+  // Status timeline steps
+  const timelineSteps = ["Neu","Bezahlt","Versendet","Zugestellt"];
+  const getStepState = (step, currentStatus) => {
+    if (currentStatus === "Storniert") return step === "Neu" ? "canc" : "none";
+    const idx = timelineSteps.indexOf(currentStatus);
+    const stepIdx = timelineSteps.indexOf(step);
+    if (stepIdx < idx) return "done";
+    if (stepIdx === idx) return "active";
+    return "none";
+  };
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Zugestellt":"s-paid","Storniert":"s-canc" };
+
+  return (
+    <div style={{background:"var(--bg)",minHeight:"calc(100vh - 58px)"}}>
+      <div className="acc-wrap">
+        {/* Header */}
+        <div className="acc-header">
+          <div className="acc-avatar">{initials}</div>
+          <div style={{flex:1}}>
+            <div className="acc-name">{name}</div>
+            <div className="acc-email">{email}</div>
+          </div>
+          <div style={{display:"flex",gap:".5rem",flexWrap:"wrap"}}>
+            <button className="btn btn-o btn-sm" onClick={()=>setView("shop")}>
+              <I d={ICONS.home} size={14}/> Shop
+            </button>
+            <button className="btn btn-d btn-sm" onClick={onLogout}>
+              <I d={ICONS.x} size={14}/> Abmelden
+            </button>
+          </div>
+        </div>
+
+        {/* My Orders */}
+        <h3 style={{fontFamily:"Barlow Condensed",fontWeight:800,fontSize:"1.3rem",textTransform:"uppercase",letterSpacing:"1px",marginBottom:"1.2rem",display:"flex",alignItems:"center",gap:".5rem"}}>
+          <I d={ICONS.orders} size={18}/> Meine Bestellungen
+          <span style={{fontSize:".75rem",fontFamily:"Barlow",fontWeight:400,color:"var(--mu)",textTransform:"none",letterSpacing:0}}>({myOrders.length})</span>
+        </h3>
+
+        {myOrders.length === 0 ? (
+          <div className="acc-empty">
+            <I d={ICONS.box} size={48}/>
+            <p style={{marginTop:"1rem",fontSize:".95rem"}}>Noch keine Bestellungen vorhanden.</p>
+            <button className="btn btn-p" style={{marginTop:"1rem"}} onClick={()=>setView("shop")}>
+              Jetzt einkaufen →
+            </button>
+          </div>
+        ) : myOrders.map(o => (
+          <div key={o.id} className="acc-order-card">
+            <div className="acc-order-hdr">
+              <div>
+                <div className="acc-order-id">#{o.id}</div>
+                <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".1rem"}}>
+                  {o.date} · {o.payment === "paypal" ? "PayPal" : "Vorkasse"}
+                </div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div className="acc-order-total">{fmt(o.total)}</div>
+                <span className={`spill ${statusClass[o.status]||"s-new"}`} style={{fontSize:".7rem"}}>{o.status}</span>
+              </div>
+            </div>
+
+            {/* Artikel */}
+            <div className="acc-order-items">
+              {(o.items||[]).map(i=>(
+                <div key={i.id} style={{display:"flex",justifyContent:"space-between",padding:".18rem 0"}}>
+                  <span>{i.name} <span style={{opacity:.6}}>× {i.qty}</span></span>
+                  <span style={{color:"var(--acc)"}}>{fmt(i.price*i.qty)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Status Timeline */}
+            {o.status !== "Storniert" ? (
+              <div className="acc-status-timeline">
+                {timelineSteps.map((step, idx) => {
+                  const state = getStepState(step, o.status);
+                  return (
+                    <React.Fragment key={step}>
+                      <div className="acc-tl-step">
+                        <div className={`acc-tl-dot${state!=="none"?" "+state:""}`}>
+                          {state==="done" && <I d={ICONS.check} size={11} sw={3}/>}
+                          {state==="active" && <I d={ICONS.chev} size={11} sw={3}/>}
+                        </div>
+                        <div className={`acc-tl-label${state!=="none"?" "+state:""}`}>{step}</div>
+                      </div>
+                      {idx < timelineSteps.length-1 && (
+                        <div className={`acc-tl-line${state==="done"?" done":""}`}/>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{marginTop:".75rem",padding:".5rem .75rem",background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.2)",borderRadius:"7px",fontSize:".78rem",color:"var(--err)",display:"flex",alignItems:"center",gap:".4rem"}}>
+                <I d={ICONS.x} size={13}/> Diese Bestellung wurde storniert.
+              </div>
+            )}
+
+            {/* Vorkasse: Bankverbindung anzeigen wenn noch nicht bezahlt */}
+            {o.payment === "vorkasse" && o.status === "Neu" && (
+              <div style={{marginTop:".85rem"}}>
+                <BankInfo orderId={o.id} total={o.total} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── CUSTOMERS SECTION ─────────────────────────────────────────────────────────
 function CustomersSection({ orders, setOrderModal, setInvoiceModal }) {
   const [search, setSearch] = useState("");
@@ -2384,7 +2658,7 @@ function CustomersSection({ orders, setOrderModal, setInvoiceModal }) {
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [view, setView] = useState("shop"); // shop | backend | contact | impressum | agb | datenschutz
+  const [view, setView] = useState("shop"); // shop | backend | contact | impressum | agb | datenschutz | login | account
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -2401,9 +2675,24 @@ export default function App() {
   const [beAuth, setBeAuth] = useState(false);
   const [bePassword, setBePassword] = useState("");
   const [beAuthError, setBeAuthError] = useState(false);
-  const BE_PASSWORD = "MKE2026!"; // ← Passwort hier ändern
+  const BE_PASSWORD = "MKE2026!";
+  // Customer Auth
+  const [custUser, setCustUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const [dbError, setDbError] = useState(null);
+
+  // Check existing Supabase auth session
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setCustUser(session.user);
+      setAuthChecked(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_e, session) => {
+      setCustUser(session?.user || null);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -2522,6 +2811,12 @@ export default function App() {
   };
   const handleBeLogout = () => { setBeAuth(false); setView("shop"); };
 
+  const handleCustLogin = (user) => { setCustUser(user); setView("account"); };
+  const handleCustLogout = async () => {
+    await supabase.auth.signOut();
+    setCustUser(null); setView("shop");
+  };
+
   if(!loaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--mu)",fontFamily:"Barlow,sans-serif"}}>Lädt…</div>;
 
   const newOrderCount = orders.filter(o=>o.status==="Neu").length;
@@ -2535,6 +2830,21 @@ export default function App() {
           <div className="nav-links">
             <button className={`nb${view==="shop"?" on":""}`} onClick={()=>setView("shop")}><I d={ICONS.home} size={15}/> Shop</button>
             <button className={`nb${view==="contact"?" on":""}`} onClick={()=>setView("contact")}><I d={ICONS.mail} size={15}/> Kontakt</button>
+
+            {/* Customer Account Button */}
+            {custUser ? (
+              <button className={`nb${view==="account"?" on":""}`} onClick={()=>setView("account")} style={{display:"flex",alignItems:"center",gap:".38rem"}}>
+                <div style={{width:"20px",height:"20px",borderRadius:"50%",background:"var(--acc)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:".6rem",fontWeight:900,color:"#000",flexShrink:0}}>
+                  {(custUser.user_metadata?.full_name||custUser.email||"K").slice(0,1).toUpperCase()}
+                </div>
+                Mein Konto
+              </button>
+            ) : (
+              <button className={`nb${view==="login"?" on":""}`} onClick={()=>setView("login")}>
+                <I d={ICONS.user} size={15}/> Anmelden
+              </button>
+            )}
+
             {beAuth && (
               <button className={`nb${view==="backend"?" on":""}`} onClick={()=>setView("backend")} style={{position:"relative"}}>
                 <I d={ICONS.shield} size={15}/> Backend
@@ -2547,7 +2857,7 @@ export default function App() {
               </button>
             )}
           </div>
-          {(view==="shop"||view==="contact"||view==="impressum"||view==="agb"||view==="datenschutz") && (
+          {(view==="shop"||view==="contact"||view==="impressum"||view==="agb"||view==="datenschutz"||view==="login"||view==="account") && (
             <button className="cart-btn" onClick={()=>setCartOpen(true)}>
               <I d={ICONS.cart} size={15}/> Warenkorb {cartCount>0 && <span className="badge">{cartCount}</span>}
             </button>
@@ -2570,6 +2880,8 @@ export default function App() {
         {view==="impressum"  && <ImpressumPage  />}
         {view==="agb"        && <AGBPage        setView={setView}/>}
         {view==="datenschutz"&& <DatenschutzPage/>}
+        {view==="login"      && <CustomerAuthPage onLogin={handleCustLogin} setView={setView}/>}
+        {view==="account"    && <CustomerAccountPage user={custUser} orders={orders} onLogout={handleCustLogout} setView={setView}/>}
         {view==="backend" && !beAuth && (
           <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",padding:"2rem"}}>
             <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"16px",padding:"2.5rem",width:"min(400px,100%)",textAlign:"center"}}>
