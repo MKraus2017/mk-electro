@@ -2880,9 +2880,6 @@ function NewsletterSection({ newsletterList, deleteCustomer }) {
     </>
   );
 }
-  const [search, setSearch] = useState("");
-  const [confirmDel, setConfirmDel] = useState(null);
-  const [deleting, setDeleting] = useState(false);
 
 // ── CUSTOMERS SECTION ─────────────────────────────────────────────────────────
 function CustomersSection({ orders, regUsers, regLoading, setOrderModal, setInvoiceModal, deleteCustomer, deleteUserById }) {
