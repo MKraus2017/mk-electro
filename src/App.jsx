@@ -1926,6 +1926,256 @@ function Checkout({ cart, cartTotal, cartSubtotal, shippingCost, onClose, onOrde
   );
 }
 
+// ── ORDER LOOKUP PAGE (für eBay-Kunden ohne Account) ─────────────────────────
+function OrderLookupPage({ orders, setView }) {
+  const [searchVal, setSearchVal] = useState("");
+  const [result, setResult] = useState(null); // null | "not_found" | order object
+  const [loading, setLoading] = useState(false);
+
+  const timelineSteps = ["Neu","Bezahlt","Versendet","Zugestellt"];
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Zugestellt":"s-paid","Storniert":"s-canc" };
+
+  const getStepState = (step, currentStatus) => {
+    if (currentStatus === "Storniert") return step === "Neu" ? "canc" : "none";
+    const idx = timelineSteps.indexOf(currentStatus);
+    const stepIdx = timelineSteps.indexOf(step);
+    if (stepIdx < idx) return "done";
+    if (stepIdx === idx) return "active";
+    return "none";
+  };
+
+  const search = async () => {
+    if (!searchVal.trim()) return;
+    setLoading(true); setResult(null);
+    const q = searchVal.trim().toUpperCase();
+    // Search in loaded orders first
+    let found = orders.find(o =>
+      o.id?.toUpperCase() === q ||
+      o.ebay_order_id?.toUpperCase() === q ||
+      o.ebay_order_id?.replace(/-/g,"").toUpperCase() === q.replace(/-/g,"")
+    );
+    // If not found locally, query Supabase directly
+    if (!found) {
+      try {
+        const { data } = await supabase.from("orders").select("*")
+          .or(`id.eq.${q},ebay_order_id.eq.${searchVal.trim()}`).single();
+        if (data) found = rowToOrder(data);
+      } catch(e) { /* not found */ }
+    }
+    setResult(found || "not_found");
+    setLoading(false);
+  };
+
+  const downloadInvoice = (o) => {
+    const invoiceNr = "RE-" + (o.id||"").replace("MKE-","").replace("EBY-","") + "-1";
+    const html = generateInvoiceHTML(o, invoiceNr);
+    const win = window.open("", "_blank");
+    win.document.write(`<!DOCTYPE html><html lang="de"><head>
+      <meta charset="UTF-8"/><title>Rechnung ${invoiceNr}</title>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@300;400;500;600&display=swap');
+        body{font-family:'Barlow',sans-serif;background:#fff;margin:0;padding:2rem;color:#111}
+        .inv-preview{max-width:800px;margin:0 auto}
+        .inv-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:2px solid #e8a020}
+        .inv-company h2{font-family:'Barlow Condensed',sans-serif;font-size:1.6rem;font-weight:900;color:#e8a020;margin:0 0 .2rem}
+        .inv-company p,.inv-meta{font-size:.75rem;color:#555;margin:0}
+        .inv-meta{text-align:right}.inv-meta strong{display:block;font-size:1rem;color:#111;font-family:'Barlow Condensed';font-weight:900}
+        .inv-addrs{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.4rem}
+        .inv-addr h4{font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:#888;margin:0 0 .3rem}
+        .inv-addr p{font-size:.82rem;color:#222;margin:0}
+        .inv-tbl{width:100%;border-collapse:collapse;margin-bottom:1.2rem}
+        .inv-tbl th{background:#f5f5f5;padding:.5rem .7rem;text-align:left;font-size:.72rem;text-transform:uppercase;color:#666;border-bottom:2px solid #e8a020}
+        .inv-tbl td{padding:.45rem .7rem;border-bottom:1px solid #eee;font-size:.8rem}
+        .inv-tbl tfoot td{border-top:2px solid #e8a020;font-weight:700;font-size:.88rem}
+        .inv-footer{margin-top:1.2rem;padding-top:1rem;border-top:1px solid #eee;font-size:.72rem;color:#888;text-align:center}
+        .inv-bank{background:#fffbf2;border:1px solid #e8a020;border-radius:6px;padding:.7rem;margin:.8rem 0;font-size:.75rem}
+        @media print{body{padding:.5rem}}
+      </style>
+    </head><body>${html}
+    <br/><button onclick="window.print()" style="margin-top:1rem;padding:.5rem 1.5rem;background:#e8a020;border:none;border-radius:6px;cursor:pointer;font-size:.9rem;font-family:Barlow,sans-serif">🖨️ Drucken / Als PDF speichern</button>
+    </body></html>`);
+    win.document.close();
+  };
+
+  const order = result && result !== "not_found" ? result : null;
+  const subtotal = order ? (order.items||[]).reduce((s,i)=>s+i.price*i.qty,0) : 0;
+  const shippingCost = order ? (order.total - subtotal > 0.01 ? order.total - subtotal : (subtotal >= 50 ? 0 : 6)) : 0;
+
+  const trackingUrl = (o) => {
+    if (!o?.tracking_number) return null;
+    if (o.carrier === "DHL" || o.carrier === "DHL Express")
+      return `https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?idc=${o.tracking_number}`;
+    if (o.carrier === "Hermes")
+      return `https://www.myhermes.de/empfangen/sendungsverfolgung/sendungsinformation/#${o.tracking_number}`;
+    if (o.carrier === "UPS")
+      return `https://www.ups.com/track?tracknum=${o.tracking_number}`;
+    if (o.carrier === "GLS")
+      return `https://gls-group.com/track/${o.tracking_number}`;
+    if (o.carrier === "DPD")
+      return `https://tracking.dpd.de/status/de_DE/parcel/${o.tracking_number}`;
+    return null;
+  };
+
+  return (
+    <div style={{background:"var(--bg)",minHeight:"calc(100vh - 58px)"}}>
+      <div style={{maxWidth:"680px",margin:"0 auto",padding:"2.5rem 1rem"}}>
+
+        {/* Header */}
+        <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+          <div style={{width:"56px",height:"56px",background:"rgba(232,160,32,.12)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 1rem",color:"var(--acc)"}}>
+            <I d={ICONS.orders} size={24}/>
+          </div>
+          <h1 style={{fontFamily:"Barlow Condensed",fontWeight:900,fontSize:"2rem",margin:"0 0 .4rem"}}>Bestellung verfolgen</h1>
+          <p style={{color:"var(--mu)",margin:0}}>Geben Sie Ihre Bestell- oder eBay-Bestellnummer ein</p>
+        </div>
+
+        {/* Search */}
+        <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"14px",padding:"1.5rem",marginBottom:"1.5rem"}}>
+          <div style={{display:"flex",gap:".6rem"}}>
+            <input className="fi" style={{flex:1,fontSize:"1rem"}}
+              placeholder="z.B. EBY-A1B2C3 oder 26-14675-86531"
+              value={searchVal}
+              onChange={e=>setSearchVal(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&search()}/>
+            <button className="btn btn-p" onClick={search} disabled={loading}
+              style={{minWidth:"110px",justifyContent:"center",fontSize:".9rem"}}>
+              {loading ? "Suche…" : <><I d={ICONS.search} size={15}/> Suchen</>}
+            </button>
+          </div>
+          <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".65rem"}}>
+            Sie finden Ihre Bestellnummer in der Bestellbestätigung per E-Mail.
+          </div>
+        </div>
+
+        {/* Not found */}
+        {result === "not_found" && (
+          <div style={{textAlign:"center",padding:"2rem",background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"14px",color:"var(--mu)"}}>
+            <I d={ICONS.x} size={36}/>
+            <p style={{marginTop:".75rem",fontWeight:600,color:"var(--tx)"}}>Bestellung nicht gefunden</p>
+            <p style={{fontSize:".83rem"}}>Bitte prüfen Sie die Bestellnummer. Bei Fragen kontaktieren Sie uns unter <a href="mailto:shop@mk-electro.com" style={{color:"var(--acc)"}}>shop@mk-electro.com</a></p>
+          </div>
+        )}
+
+        {/* Found */}
+        {order && (
+          <>
+            {/* Status Card */}
+            <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"14px",padding:"1.5rem",marginBottom:"1rem"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"1.2rem",flexWrap:"wrap",gap:".5rem"}}>
+                <div>
+                  <div style={{fontFamily:"monospace",fontSize:".82rem",color:"var(--acc)",marginBottom:".2rem"}}>{order.id}</div>
+                  {order.ebay_order_id && <div style={{fontSize:".72rem",color:"var(--mu)"}}>eBay: {order.ebay_order_id}</div>}
+                  <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".1rem"}}>{order.date}</div>
+                </div>
+                <span className={`spill ${statusClass[order.status]||"s-new"}`} style={{fontSize:".85rem",padding:".35rem .85rem"}}>{order.status}</span>
+              </div>
+
+              {/* Timeline */}
+              {order.status !== "Storniert" ? (
+                <div className="acc-status-timeline" style={{marginBottom:"1.2rem"}}>
+                  {timelineSteps.map((step, idx) => {
+                    const state = getStepState(step, order.status);
+                    return (
+                      <React.Fragment key={step}>
+                        <div className="acc-tl-step">
+                          <div className={`acc-tl-dot${state!=="none"?" "+state:""}`}>
+                            {state==="done" && <I d={ICONS.check} size={11} sw={3}/>}
+                            {state==="active" && <I d={ICONS.chev} size={11} sw={3}/>}
+                          </div>
+                          <div className={`acc-tl-label${state!=="none"?" "+state:""}`}>{step}</div>
+                        </div>
+                        {idx < timelineSteps.length-1 && <div className={`acc-tl-line${state==="done"?" done":""}`}/>}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.2)",borderRadius:"8px",padding:".6rem .85rem",fontSize:".82rem",color:"var(--err)",marginBottom:"1rem",display:"flex",alignItems:"center",gap:".4rem"}}>
+                  <I d={ICONS.x} size={13}/> Diese Bestellung wurde storniert.
+                </div>
+              )}
+
+              {/* Tracking */}
+              {(order.carrier || order.tracking_number) && (
+                <div style={{background:"rgba(59,130,246,.06)",border:"1px solid rgba(59,130,246,.15)",borderRadius:"9px",padding:".85rem 1rem",marginBottom:"1rem"}}>
+                  <div style={{fontSize:".72rem",fontWeight:700,color:"var(--inf)",textTransform:"uppercase",letterSpacing:".5px",marginBottom:".5rem",display:"flex",alignItems:"center",gap:".35rem"}}>
+                    <I d={ICONS.truck} size={13}/> Versandinformationen
+                  </div>
+                  {order.carrier && <div style={{fontSize:".85rem",fontWeight:600,marginBottom:".2rem"}}>{order.carrier}</div>}
+                  {order.tracking_number && (
+                    <div style={{fontFamily:"monospace",fontSize:".82rem",color:"var(--inf)",marginBottom:".5rem"}}>{order.tracking_number}</div>
+                  )}
+                  {trackingUrl(order) && (
+                    <a href={trackingUrl(order)} target="_blank" rel="noreferrer"
+                      className="btn btn-i btn-sm" style={{textDecoration:"none",display:"inline-flex"}}>
+                      <I d={ICONS.link} size={13}/> Sendung verfolgen →
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Articles */}
+              <div style={{marginBottom:"1rem"}}>
+                <div style={{fontSize:".72rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:".5px",marginBottom:".5rem"}}>Bestellte Artikel</div>
+                <div style={{background:"var(--sf2)",borderRadius:"8px",padding:".75rem"}}>
+                  {(order.items||[]).map(i=>(
+                    <div key={i.id} style={{display:"flex",justifyContent:"space-between",padding:".3rem 0",borderBottom:"1px solid var(--br)"}}>
+                      <span style={{fontSize:".85rem"}}>{i.name} <span style={{opacity:.6}}>× {i.qty}</span></span>
+                      <span style={{color:"var(--acc)",fontWeight:700,flexShrink:0,marginLeft:".5rem"}}>{fmt(i.price*i.qty)}</span>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",justifyContent:"space-between",padding:".3rem 0",fontSize:".82rem"}}>
+                    <span style={{color:"var(--mu)"}}>Versandkosten</span>
+                    <span style={{color:shippingCost===0?"var(--ok)":"var(--tx)",fontWeight:600}}>{shippingCost===0?"Kostenlos":fmt(shippingCost)}</span>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",padding:".5rem 0 0",borderTop:"1px solid var(--br)",marginTop:".2rem"}}>
+                    <span style={{fontFamily:"Barlow Condensed",fontWeight:900,fontSize:"1rem"}}>Gesamtbetrag</span>
+                    <span style={{fontFamily:"Barlow Condensed",fontWeight:900,fontSize:"1rem",color:"var(--acc)"}}>{fmt(order.total)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lieferadresse */}
+              {order.customer?.name && (
+                <div style={{fontSize:".82rem",color:"var(--mu)",marginBottom:"1rem"}}>
+                  <div style={{fontSize:".72rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:".5px",marginBottom:".35rem"}}>Lieferadresse</div>
+                  {order.customer.name}<br/>
+                  {order.customer.street && <>{order.customer.street}<br/></>}
+                  {order.customer.zip} {order.customer.city}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div style={{display:"flex",gap:".6rem",flexWrap:"wrap",paddingTop:".5rem",borderTop:"1px solid var(--br)"}}>
+                <button className="btn btn-p" onClick={()=>downloadInvoice(order)}
+                  style={{display:"flex",alignItems:"center",gap:".4rem"}}>
+                  <I d={ICONS.invoice} size={15}/> Rechnung herunterladen
+                </button>
+                <a href="mailto:shop@mk-electro.com" className="btn btn-o"
+                  style={{textDecoration:"none",display:"flex",alignItems:"center",gap:".4rem"}}>
+                  <I d={ICONS.mail} size={15}/> Kontakt
+                </a>
+              </div>
+            </div>
+
+            {/* New search */}
+            <div style={{textAlign:"center"}}>
+              <button className="nb" style={{fontSize:".8rem",color:"var(--mu)"}}
+                onClick={()=>{setResult(null);setSearchVal("");}}>
+                ← Andere Bestellung suchen
+              </button>
+            </div>
+          </>
+        )}
+
+        <div style={{textAlign:"center",marginTop:"2rem"}}>
+          <button className="nb" style={{fontSize:".78rem",color:"var(--mu)"}} onClick={()=>setView("shop")}>← Zurück zum Shop</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── CONTACT PAGE ──────────────────────────────────────────────────────────────
 function ContactPage({ setView }) {
   const [form, setForm] = useState({ name:"", email:"", phone:"", subject:"Allgemeine Anfrage", message:"" });
@@ -2336,6 +2586,7 @@ function ShopView({ products, categories, category, search, setCategory, setSear
             <h4>Shop</h4>
             <a onClick={()=>setView("shop")} style={{cursor:"pointer"}}>Alle Produkte</a>
             <a onClick={()=>setView("contact")} style={{cursor:"pointer"}}>Kontakt</a>
+            <a onClick={()=>setView("orderlookup")} style={{cursor:"pointer"}}>Bestellung verfolgen</a>
           </div>
           <div className="footer-col">
             <h4>Rechtliches</h4>
@@ -4158,7 +4409,7 @@ function CustomersSection({ orders, regUsers, regLoading, setOrderModal, setInvo
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [view, setView] = useState("shop"); // shop | backend | contact | impressum | agb | datenschutz | login | account
+  const [view, setView] = useState("shop"); // shop | backend | contact | impressum | agb | datenschutz | login | account | orderlookup
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -4370,6 +4621,7 @@ export default function App() {
           <div className="nav-links">
             <button className={`nb${view==="shop"?" on":""}`} onClick={()=>setView("shop")}><I d={ICONS.home} size={15}/> Shop</button>
             <button className={`nb${view==="contact"?" on":""}`} onClick={()=>setView("contact")}><I d={ICONS.mail} size={15}/> Kontakt</button>
+            <button className={`nb${view==="orderlookup"?" on":""}`} onClick={()=>setView("orderlookup")}><I d={ICONS.orders} size={15}/> Bestellung verfolgen</button>
 
             {/* Customer Account Button */}
             {custUser ? (
@@ -4397,7 +4649,7 @@ export default function App() {
               </button>
             )}
           </div>
-          {(view==="shop"||view==="contact"||view==="impressum"||view==="agb"||view==="datenschutz"||view==="login"||view==="account") && (
+          {(view==="shop"||view==="contact"||view==="impressum"||view==="agb"||view==="datenschutz"||view==="login"||view==="account"||view==="orderlookup") && (
             <button className="cart-btn" onClick={()=>setCartOpen(true)}>
               <I d={ICONS.cart} size={15}/> Warenkorb {cartCount>0 && <span className="badge">{cartCount}</span>}
             </button>
@@ -4416,12 +4668,13 @@ export default function App() {
             setView={setView}
           />
         )}
-        {view==="contact"    && <ContactPage    setView={setView}/>}
-        {view==="impressum"  && <ImpressumPage  />}
-        {view==="agb"        && <AGBPage        setView={setView}/>}
-        {view==="datenschutz"&& <DatenschutzPage/>}
-        {view==="login"      && <CustomerAuthPage onLogin={handleCustLogin} setView={setView}/>}
-        {view==="account"    && <CustomerAccountPage user={custUser} orders={orders} onLogout={handleCustLogout} setView={setView}/>}
+        {view==="contact"     && <ContactPage    setView={setView}/>}
+        {view==="impressum"   && <ImpressumPage  />}
+        {view==="agb"         && <AGBPage        setView={setView}/>}
+        {view==="datenschutz" && <DatenschutzPage/>}
+        {view==="login"       && <CustomerAuthPage onLogin={handleCustLogin} setView={setView}/>}
+        {view==="account"     && <CustomerAccountPage user={custUser} orders={orders} onLogout={handleCustLogout} setView={setView}/>}
+        {view==="orderlookup" && <OrderLookupPage orders={orders} setView={setView}/>}
         {view==="backend" && !beAuth && (
           <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",padding:"2rem"}}>
             <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"16px",padding:"2.5rem",width:"min(400px,100%)",textAlign:"center"}}>
