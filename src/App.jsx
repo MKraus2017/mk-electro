@@ -801,7 +801,7 @@ function generateInvoiceHTML(order, invoiceNr) {
     </tr>
   `).join("");
   const paymentNote = order.payment === "vorkasse"
-    ? `<div class="inv-bank"><strong>Bitte überweisen Sie auf:</strong><br>Kontoinhaber: MK-Electro · IBAN: DE89 3704 0044 0532 0130 00 · BIC: COBADEFFXXX<br>Verwendungszweck: ${order.id}</div>`
+    ? `<div class="inv-bank"><strong>Bitte überweisen Sie auf:</strong><br>Kontoinhaber: MK-Electro · IBAN: DE59 5467 0024 0032 0051 00 · BIC: DEUTDEDB546<br>Verwendungszweck: ${order.id}</div>`
     : `<p style="font-size:.75rem;color:#555">Zahlung per PayPal – Betrag bereits autorisiert.</p>`;
   return `
     <div class="inv-preview" id="invoice-${order.id}">
@@ -2242,8 +2242,8 @@ export default function App() {
                     <div className="bank-box">
                       <p><strong>Bitte überweisen Sie auf:</strong></p>
                       <p><span>Kontoinhaber:</span> <strong>MK-Electro · Inh. Andreas Kraus</strong></p>
-                      <p><span>IBAN:</span> <strong>DE89 3704 0044 0532 0130 00</strong></p>
-                      <p><span>BIC:</span> <strong>COBADEFFXXX</strong></p>
+                      <p><span>IBAN:</span> <strong>DE59 5467 0024 0032 0051 00</strong></p>
+                      <p><span>BIC:</span> <strong>DEUTDEDB546</strong></p>
                       <p><span>Verwendungszweck:</span> <strong>{orderSuccess.id}</strong></p>
                       <p style={{marginTop:".4rem",color:"var(--acc)",fontSize:".78rem"}}>Betrag: {fmt(orderSuccess.total)}</p>
                     </div>
