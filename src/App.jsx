@@ -3391,27 +3391,34 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
   const saveOrder = async (orderData) => {
     const order = {
       id: genId(),
-      date: new Date().toLocaleDateString("de-DE"),
+      date: orderData.soldDate || new Date().toLocaleDateString("de-DE"),
       status: orderData.status,
       payment: orderData.payment,
       source: "ebay",
       ebay_order_id: orderData.ebayOrderId || null,
-      ebay_item_id: orderData.ebayItemId || null,
+      ebay_item_id:  orderData.ebayItemId  || null,
+      carrier:        orderData.carrier    || null,
+      tracking_number:orderData.trackingNr || null,
       customer: {
-        name: orderData.buyerName, email: orderData.buyerEmail,
-        street: orderData.street, zip: orderData.zip, city: orderData.city,
+        name:   orderData.buyerName,  email: orderData.buyerEmail,
+        street: orderData.street,     zip:   orderData.zip,
+        city:   orderData.city,
       },
       items: [{
-        id: suggestion?.id || Date.now(),
-        name: orderData.itemName,
-        qty: parseInt(orderData.qty)||1,
-        price: parseFloat(orderData.price)||0,
+        id:    suggestion?.id || Date.now(),
+        name:  orderData.itemName,
+        qty:   parseInt(orderData.qty)   || 1,
+        price: parseFloat(orderData.price) || 0,
       }],
       total: (parseFloat(orderData.price)||0) * (parseInt(orderData.qty)||1),
       newsletter: false,
     };
     try {
-      const { data, error } = await supabase.from("orders").insert(orderToRow(order)).select().single();
+      const row = orderToRow(order);
+      // Add extra fields not in standard orderToRow
+      row.carrier         = order.carrier;
+      row.tracking_number = order.tracking_number;
+      const { data, error } = await supabase.from("orders").insert(row).select().single();
       if (error) throw error;
       setOrders(os => [rowToOrder(data), ...os]);
       return true;
@@ -3432,32 +3439,132 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
     setSaving(false);
   };
 
-  // CSV Parser: eBay Verkäufe CSV (Spalten: Bestellnummer, Artikel, Preis, Käufer, Adresse...)
+  // CSV Parser: eBay Verkäufe CSV (Semikolon-getrennt, deutsches Format)
   const parseCSV = () => {
-    const lines = csvText.trim().split("\n").filter(l=>l.trim());
-    if (lines.length < 2) { setErr("CSV muss mindestens eine Kopfzeile und eine Datenzeile haben."); return; }
-    const headers = lines[0].split(",").map(h=>h.trim().replace(/"/g,"").toLowerCase());
-    const rows = lines.slice(1).map(line => {
-      const cols = line.split(",").map(c=>c.trim().replace(/"/g,""));
-      const row = {};
-      headers.forEach((h,i) => row[h] = cols[i]||"");
-      return row;
+    const lines = csvText.trim().split("\n").filter(l => l.trim() && !l.startsWith("1;Verkaufsprotokoll") && !l.startsWith("Verkäufername"));
+    if (lines.length < 2) { setErr("Keine gültigen Datenzeilen gefunden."); return; }
+
+    // Parse semicolon-separated, quoted fields
+    const parseLine = (line) => {
+      const result = [];
+      let cur = "", inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"' && !inQ) { inQ = true; }
+        else if (c === '"' && inQ && line[i+1] === '"') { cur += '"'; i++; }
+        else if (c === '"' && inQ) { inQ = false; }
+        else if (c === ';' && !inQ) { result.push(cur.trim()); cur = ""; }
+        else { cur += c; }
+      }
+      result.push(cur.trim());
+      return result;
+    };
+
+    const parsePrice = (s) => parseFloat((s||"0").replace(/[€\s]/g,"").replace(",",".")) || 0;
+
+    // Find header line (first non-empty line with known columns)
+    let headerLine = -1;
+    let headers = [];
+    for (let i = 0; i < lines.length; i++) {
+      const cols = parseLine(lines[i]);
+      if (cols.some(c => c.includes("Bestellnummer") || c.includes("Artikelnummer"))) {
+        headerLine = i;
+        headers = cols.map(h => h.replace(/"/g,"").trim().toLowerCase());
+        break;
+      }
+    }
+    if (headerLine === -1) { setErr("Keine Kopfzeile gefunden. Bitte den eBay CSV direkt einfügen."); return; }
+
+    const hi = (name) => headers.findIndex(h => h.includes(name.toLowerCase()));
+
+    // Column indices
+    const cols = {
+      orderNum:   hi("bestellnummer"),
+      itemNum:    hi("artikelnummer"),
+      title:      hi("angebotstitel"),
+      qty:        hi("anzahl"),
+      price:      hi("gesamtbetrag inkl"),
+      priceFall:  hi("verkauft für"),
+      buyerName:  hi("name des käufers"),
+      buyerEmail: hi("e-mail des käufers"),
+      street:     hi("adresse 1 des empfängers"),
+      street2:    hi("adresse 2 des empfängers"),
+      city:       hi("versand nach - ort"),
+      zip:        hi("versand nach - plz"),
+      country:    hi("versand nach - land"),
+      carrier:    hi("versandservice"),
+      tracking:   hi("sendungsnummer"),
+      soldDate:   hi("verkauft am"),
+      payment:    hi("zahlungsmethode"),
+      variant:    hi("variantendetails"),
+    };
+
+    const mapCarrier = (s) => {
+      if (!s) return null;
+      const lower = s.toLowerCase();
+      if (lower.includes("hermes") || lower.includes("hm")) return "Hermes";
+      if (lower.includes("dhl")) return "DHL";
+      if (lower.includes("ups")) return "UPS";
+      if (lower.includes("gls")) return "GLS";
+      if (lower.includes("dpd")) return "DPD";
+      if (lower.includes("post") || lower.includes("brief")) return "Deutsche Post";
+      if (lower.includes("fedex")) return "FedEx";
+      if (lower.includes("amazon")) return "Amazon Logistics";
+      return s; // keep original if unknown
+    };
+
+    const dataLines = lines.slice(headerLine + 1).filter(l => {
+      const f = parseLine(l);
+      // Skip empty/summary lines
+      return f.length > 5 && f[cols.orderNum > -1 ? cols.orderNum : 1]?.replace(/"/g,"").trim();
     });
-    // Try to map common eBay CSV column names
-    const mapped = rows.map(r => ({
-      ebayOrderId:  r["bestellnummer"] || r["order id"] || r["order number"] || "",
-      ebayItemId:   r["artikel-nr"] || r["item id"] || r["item number"] || "",
-      itemName:     r["artikelbezeichnung"] || r["item title"] || r["artikel"] || r["title"] || "",
-      qty:          r["menge"] || r["quantity"] || r["qty"] || "1",
-      price:        (r["gesamtbetrag"] || r["total"] || r["price"] || "0").replace("€","").replace(",",".").trim(),
-      buyerName:    r["käufer"] || r["buyer"] || r["name"] || "",
-      buyerEmail:   r["käufer-email"] || r["buyer email"] || r["email"] || "",
-      street:       r["straße"] || r["strasse"] || r["street"] || r["address"] || "",
-      zip:          r["plz"] || r["zip"] || r["postal code"] || "",
-      city:         r["ort"] || r["city"] || "",
-      payment:      "paypal",
-      status:       "Bezahlt",
-    }));
+
+    if (dataLines.length === 0) { setErr("Keine Bestelldaten gefunden."); return; }
+
+    const mapped = dataLines.map(line => {
+      const f = parseLine(line);
+      const get = (idx) => idx > -1 ? (f[idx]||"").replace(/"/g,"").trim() : "";
+
+      const rawPrice = get(cols.price) || get(cols.priceFall);
+      const price = parsePrice(rawPrice);
+      const qty = parseInt(get(cols.qty)) || 1;
+
+      // Format date: "29-Mai-26" → "29.05.2026"
+      const monthMap = {jan:"01",feb:"02",mär:"03",mar:"03",apr:"04",mai:"05",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",okt:"10",oct:"10",nov:"11",dez:"12",dec:"12"};
+      const rawDate = get(cols.soldDate);
+      let formattedDate = rawDate;
+      if (rawDate) {
+        const parts = rawDate.split("-");
+        if (parts.length === 3) {
+          const mon = monthMap[parts[1].toLowerCase()] || parts[1];
+          const year = parts[2].length === 2 ? "20" + parts[2] : parts[2];
+          formattedDate = `${parts[0].padStart(2,"0")}.${mon}.${year}`;
+        }
+      }
+
+      const variant = get(cols.variant);
+      const title = get(cols.title) + (variant ? ` (${variant})` : "");
+
+      return {
+        ebayOrderId: get(cols.orderNum),
+        ebayItemId:  get(cols.itemNum),
+        itemName:    title || "Unbekannter Artikel",
+        qty,
+        price:       (price / qty).toFixed(2), // unit price
+        buyerName:   get(cols.buyerName),
+        buyerEmail:  get(cols.buyerEmail),
+        street:      [get(cols.street), get(cols.street2)].filter(Boolean).join(", "),
+        zip:         get(cols.zip),
+        city:        get(cols.city),
+        country:     get(cols.country) || "DE",
+        payment:     get(cols.payment) || "ebay_checkout",
+        status:      "Bezahlt",
+        carrier:     mapCarrier(get(cols.carrier)) || null,
+        trackingNr:  get(cols.tracking) || null,
+        soldDate:    formattedDate,
+      };
+    });
+
     setCsvResult(mapped);
     setErr("");
   };
@@ -3640,7 +3747,7 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
           </div>
           <div className="fg"><label>CSV Inhalt einfügen</label>
             <textarea className="fi" rows={10} style={{fontFamily:"monospace",fontSize:".75rem",resize:"vertical"}}
-              placeholder={"Bestellnummer,Artikel-Nr,Artikelbezeichnung,Menge,Gesamtbetrag,Käufer,Käufer-Email,Straße,PLZ,Ort\n01-12345-67890,123456789012,Pioneer MVH-S420BT,1,79.90,Max Mustermann,max@web.de,Musterstr. 1,12345,Berlin"}
+              placeholder={"eBay CSV hier einfügen (Kopieren aus eBay → Mein eBay → Verkäufe → Exportieren → Alle Bestellungen).\n\nFormat wird automatisch erkannt (Semikolon-getrennt, deutsches eBay-Format)."}
               value={csvText} onChange={e=>setCsvText(e.target.value)}/>
           </div>
           <div style={{display:"flex",gap:".75rem",marginTop:".75rem"}}>
@@ -3659,17 +3766,18 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
               </div>
               <div style={{maxHeight:"280px",overflowY:"auto"}}>
                 <table className="tbl" style={{fontSize:".75rem"}}>
-                  <thead><tr><th>#</th><th>Artikel</th><th>Menge</th><th>Preis</th><th>Käufer</th><th>PLZ Ort</th><th>eBay-Nr</th></tr></thead>
+                  <thead><tr><th>#</th><th>Artikel</th><th>Menge</th><th>Preis</th><th>Käufer</th><th>PLZ Ort</th><th>eBay-Nr</th><th>Versand</th></tr></thead>
                   <tbody>
                     {csvResult.map((r,i)=>(
                       <tr key={i}>
                         <td style={{color:"var(--mu)"}}>{i+1}</td>
-                        <td style={{fontWeight:500}}>{r.itemName||"?"}</td>
+                        <td style={{fontWeight:500,maxWidth:"200px"}}>{(r.itemName||"?").slice(0,40)}{r.itemName?.length>40?"…":""}</td>
                         <td>{r.qty}</td>
-                        <td style={{color:"var(--acc)",fontWeight:700}}>{fmt(parseFloat(r.price)||0)}</td>
+                        <td style={{color:"var(--acc)",fontWeight:700}}>{fmt(parseFloat(r.price)*parseInt(r.qty)||0)}</td>
                         <td>{r.buyerName||"—"}</td>
                         <td style={{fontSize:".7rem",color:"var(--mu)"}}>{r.zip} {r.city}</td>
                         <td style={{fontFamily:"monospace",fontSize:".68rem",color:"var(--mu)"}}>{r.ebayOrderId||"—"}</td>
+                        <td style={{fontSize:".68rem",color:"var(--mu)"}}>{r.trackingNr ? <span style={{color:"var(--inf)"}}>{r.trackingNr}</span> : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
