@@ -2111,15 +2111,19 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
     })();
   }, [beSection]);
 
-  // Delete user from auth + orders
+  // Delete user via Edge Function (deletes from auth.users + orders)
   const deleteUserById = async (userId, email) => {
     try {
-      await supabase.from("orders").delete().eq("customer_email", email);
-      // Note: Deleting from auth.users requires service role key (server-side only)
-      // We mark as deleted by removing their orders and showing a note
-    } catch(e) { console.error("Benutzer löschen fehlgeschlagen:", e); }
+      const { data, error } = await supabase.functions.invoke("delete-user", {
+        body: { userId, email },
+      });
+      if (error) throw error;
+    } catch(e) {
+      console.error("Löschen fehlgeschlagen:", e);
+      alert("Fehler beim Löschen: " + e.message);
+      return;
+    }
     setRegUsers(u => u.filter(u => u.id !== userId));
-    // Also remove from orders state in parent via deleteCustomer
     deleteCustomer(email);
   };
 
