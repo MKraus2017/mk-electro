@@ -16,6 +16,7 @@ function rowToProduct(r) {
     stock: r.stock||0, stockExternal: r.stock_external||0,
     delivery: r.delivery||"", sku: r.sku||"",
     images: r.images||[], description: r.description||"",
+    supplier: r.supplier||"",
   };
 }
 // Map app product → Supabase row shape
@@ -25,6 +26,7 @@ function productToRow(p) {
     ek: p.ek, shipping: p.shipping, stock: p.stock,
     stock_external: p.stockExternal, delivery: p.delivery,
     sku: p.sku, images: p.images, description: p.description,
+    supplier: p.supplier||"",
   };
   if (p.id && typeof p.id === "number" && p.id > 1000) row.id = p.id;
   return row;
@@ -58,39 +60,39 @@ function orderToRow(o) {
 // VK-Preise = inkl. Versandkosten (Hermes/DHL) · eBay-Gebühren einkalkuliert
 const DEFAULT_PRODUCTS = [
   // ── BESTANDSARTIKEL (Lagerbestand + Preise korrigiert) ───────────────────
-  { id:1,  name:"Philips Series 1200 Kaffeevollautomat EP1220/00", category:"Kaffee & Küche",         price:239.00, ek:189.90, shipping:8.99, stock:4,  stockExternal:116, delivery:"2-4 Werktage", sku:"EP1220/00",     images:["https://images.unsplash.com/photo-1517668808822-9ebb02f2a0e6?w=600&q=80"], description:"Kaffeevollautomat mit OneTouch-Bedienung, 15 bar, 1500W, Keramik-Mahlwerk, Milchaufschäumer. Inkl. kostenlosem Versand." },
-  { id:2,  name:"Pioneer MVH-S320BT Autoradio Bluetooth",          category:"Autoradio & Navigation",  price:79.90,  ek:57.00,  shipping:5.49, stock:22, stockExternal:461, delivery:"1-3 Werktage", sku:"MVH-S320BT",   images:["https://images.unsplash.com/photo-1547394765-185e1e68f34e?w=600&q=80"], description:"1-DIN Bluetooth-Autoradio, USB, AUX, Freisprechanlage, MIXTRAX, Spotify. Inkl. kostenlosem Versand." },
-  { id:3,  name:"Braun Series 9 Pro+ 9565CC Rasierer",             category:"Rasieren & Pflege",       price:259.00, ek:209.00, shipping:6.99, stock:0,  stockExternal:334, delivery:"2-4 Werktage", sku:"9-9565CC-EU1", images:["https://images.unsplash.com/photo-1621605815971-5af68e5e0e60?w=600&q=80"], description:"Nass- & Trockenrasierer, 360° Flex-Kopf, 60 Min Akku, SmartCare Station. Inkl. kostenlosem Versand." },
-  { id:4,  name:"Philips Air Fryer Double Basket NA352/00",         category:"Kaffee & Küche",         price:149.00, ek:115.00, shipping:8.99, stock:6,  stockExternal:200, delivery:"3-5 Werktage", sku:"NA352/00",     images:["https://images.unsplash.com/photo-1626200419199-391ae4be7a41?w=600&q=80"], description:"6L/3L Doppelkorb Heißluftfritteuse, 2750W Touchscreen, S3000 Serie. Inkl. kostenlosem Versand." },
-  { id:5,  name:"Philips DST7511/80 Dampfbügeleisen 7500",         category:"Haushalt",               price:82.90,  ek:59.90,  shipping:6.99, stock:20, stockExternal:354, delivery:"1-3 Werktage", sku:"DST7511/80",  images:["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80"], description:"Profi-Dampfbügeleisen 7500 Series, 220g Dampfstoß, OptimalTEMP-Sohle, 2400W. Inkl. kostenlosem Versand." },
-  { id:6,  name:"Remington S8590 Keratin Therapy Haarglätter",     category:"Haarpflege",             price:39.90,  ek:23.00,  shipping:5.49, stock:35, stockExternal:1669,delivery:"1-2 Werktage", sku:"S8590",        images:["https://images.unsplash.com/photo-1522338242992-e1a54906a8da?w=600&q=80"], description:"Keramik-Haarglätter, Keratin Therapy, Hitzeschutzsensor, 5 Temperaturen, 230°C. Inkl. kostenlosem Versand." },
-  { id:7,  name:"Braun Silk·expert Pro 3 PL3122 IPL",              category:"Rasieren & Pflege",       price:259.00, ek:219.00, shipping:6.99, stock:0,  stockExternal:130, delivery:"2-4 Werktage", sku:"PL3122",       images:["https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=600&q=80"], description:"IPL Haarentfernung, 300.000 Lichtimpulse, SkinSafe Technologie, 3 Köpfe. Inkl. kostenlosem Versand." },
-  { id:8,  name:"Philips S9980/54 Rasierer SkinIQ",                category:"Rasieren & Pflege",       price:249.00, ek:199.00, shipping:6.99, stock:0,  stockExternal:140, delivery:"2-4 Werktage", sku:"S9980/54",    images:["https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600&q=80"], description:"Premium Wet & Dry Rasierer, SkinIQ-Technologie, 5-fach Klingensystem. Inkl. kostenlosem Versand." },
+  { id:1,  name:"Philips Series 1200 Kaffeevollautomat EP1220/00", category:"Kaffee & Küche",         price:239.00, ek:189.90, shipping:8.99, stock:4,  stockExternal:116, delivery:"2-4 Werktage", sku:"EP1220/00",     images:["https://images.unsplash.com/photo-1517668808822-9ebb02f2a0e6?w=600&q=80"], description:"Kaffeevollautomat mit OneTouch-Bedienung, 15 bar, 1500W, Keramik-Mahlwerk, Milchaufschäumer. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:2,  name:"Pioneer MVH-S320BT Autoradio Bluetooth",          category:"Autoradio & Navigation",  price:79.90,  ek:57.00,  shipping:5.49, stock:22, stockExternal:461, delivery:"1-3 Werktage", sku:"MVH-S320BT",   images:["https://images.unsplash.com/photo-1547394765-185e1e68f34e?w=600&q=80"], description:"1-DIN Bluetooth-Autoradio, USB, AUX, Freisprechanlage, MIXTRAX, Spotify. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:3,  name:"Braun Series 9 Pro+ 9565CC Rasierer",             category:"Rasieren & Pflege",       price:259.00, ek:209.00, shipping:6.99, stock:0,  stockExternal:334, delivery:"2-4 Werktage", sku:"9-9565CC-EU1", images:["https://images.unsplash.com/photo-1621605815971-5af68e5e0e60?w=600&q=80"], description:"Nass- & Trockenrasierer, 360° Flex-Kopf, 60 Min Akku, SmartCare Station. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:4,  name:"Philips Air Fryer Double Basket NA352/00",         category:"Kaffee & Küche",         price:149.00, ek:115.00, shipping:8.99, stock:6,  stockExternal:200, delivery:"3-5 Werktage", sku:"NA352/00",     images:["https://images.unsplash.com/photo-1626200419199-391ae4be7a41?w=600&q=80"], description:"6L/3L Doppelkorb Heißluftfritteuse, 2750W Touchscreen, S3000 Serie. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:5,  name:"Philips DST7511/80 Dampfbügeleisen 7500",         category:"Haushalt",               price:82.90,  ek:59.90,  shipping:6.99, stock:20, stockExternal:354, delivery:"1-3 Werktage", sku:"DST7511/80",  images:["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80"], description:"Profi-Dampfbügeleisen 7500 Series, 220g Dampfstoß, OptimalTEMP-Sohle, 2400W. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:6,  name:"Remington S8590 Keratin Therapy Haarglätter",     category:"Haarpflege",             price:39.90,  ek:23.00,  shipping:5.49, stock:35, stockExternal:1669,delivery:"1-2 Werktage", sku:"S8590",        images:["https://images.unsplash.com/photo-1522338242992-e1a54906a8da?w=600&q=80"], description:"Keramik-Haarglätter, Keratin Therapy, Hitzeschutzsensor, 5 Temperaturen, 230°C. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:7,  name:"Braun Silk·expert Pro 3 PL3122 IPL",              category:"Rasieren & Pflege",       price:259.00, ek:219.00, shipping:6.99, stock:0,  stockExternal:130, delivery:"2-4 Werktage", sku:"PL3122",       images:["https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=600&q=80"], description:"IPL Haarentfernung, 300.000 Lichtimpulse, SkinSafe Technologie, 3 Köpfe. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:8,  name:"Philips S9980/54 Rasierer SkinIQ",                category:"Rasieren & Pflege",       price:249.00, ek:199.00, shipping:6.99, stock:0,  stockExternal:140, delivery:"2-4 Werktage", sku:"S9980/54",    images:["https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600&q=80"], description:"Premium Wet & Dry Rasierer, SkinIQ-Technologie, 5-fach Klingensystem. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
   // ── NEUE ARTIKEL (Lagerliste 29.05.2026, Marge nach Gebühren ≥ 25%) ─────
-  { id:9,  name:"Oral-B iO Series 2 Elektrische Zahnbürste",       category:"Zahnpflege",             price:44.90,  ek:29.90,  shipping:5.49, stock:0,  stockExternal:1184,delivery:"3-5 Werktage", sku:"IO2LABORATORY/BK", images:["https://images.unsplash.com/photo-1559757175-5700dde675bc?w=600&q=80"], description:"iO Magnettechnologie, 3 Reinigungsmodi, Andruckkontrolle, Reiseetui, USB-Ladestation. Inkl. kostenlosem Versand." },
-  { id:10, name:"Philips Sonicare 2100 HX3651 Zahnbürste",         category:"Zahnpflege",             price:32.90,  ek:19.90,  shipping:5.49, stock:0,  stockExternal:3650,delivery:"3-5 Werktage", sku:"HX3651/12",    images:["https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=600&q=80"], description:"Sonicare Schalltechnologie, 31.000 Bewegungen/Min, SmartTimer, USB-Ladekabel. Inkl. kostenlosem Versand." },
-  { id:11, name:"Philips Sonicare 3100 HX3673 Zahnbürste",         category:"Zahnpflege",             price:54.90,  ek:32.50,  shipping:5.49, stock:0,  stockExternal:600, delivery:"3-5 Werktage", sku:"HX3673/13",    images:["https://images.unsplash.com/photo-1606811841689-23dfddce3e95?w=600&q=80"], description:"Schallzahnbürste 3100 Series, Drucksensor, 2-Wochen-Akku, Andruckkontrolle. Inkl. kostenlosem Versand." },
-  { id:12, name:"Oral-B iO Series 4 Zahnbürste Magnetic",          category:"Zahnpflege",             price:94.90,  ek:59.00,  shipping:5.49, stock:0,  stockExternal:346, delivery:"3-5 Werktage", sku:"IO4MAGNETIC/BK",images:["https://images.unsplash.com/photo-1607613009820-a29f7bb81c04?w=600&q=80"], description:"iO Magnettechnologie, 4 Reinigungsmodi, farbiges Display, Andruckkontrolle, Reiseetui. Inkl. kostenlosem Versand." },
-  { id:13, name:"Braun Silk-épil 5-620 Epilierer Wet & Dry",       category:"Rasieren & Pflege",       price:69.90,  ek:39.90,  shipping:6.99, stock:0,  stockExternal:989, delivery:"3-5 Werktage", sku:"SES5-620",     images:["https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&q=80"], description:"Wet & Dry Epilierer, 40 Pinzetten, 3 Zubehörteile, Rasieraufsatz, 30 Min Akku. Inkl. kostenlosem Versand." },
-  { id:14, name:"Braun Silk-épil 9 SES9-000 Epilierer SensoSmart", category:"Rasieren & Pflege",       price:119.00, ek:75.00,  shipping:6.99, stock:0,  stockExternal:251, delivery:"3-5 Werktage", sku:"SES9-000",     images:["https://images.unsplash.com/photo-1620756236308-65c3ef5d25f3?w=600&q=80"], description:"Premium Wet & Dry Epilierer, SensoSmart-Technologie, 40 Pinzetten, Massage-Aufsatz. Inkl. kostenlosem Versand." },
-  { id:15, name:"Pioneer MVH-230BT Autoradio Bluetooth",            category:"Autoradio & Navigation",  price:79.90,  ek:49.90,  shipping:5.49, stock:0,  stockExternal:460, delivery:"3-5 Werktage", sku:"MVH-230BT",   images:["https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80"], description:"1-DIN Mediareceiver, Bluetooth Audio & Freisprechen, USB, RDS Tuner, 4×50W MOSFET. Inkl. kostenlosem Versand." },
-  { id:16, name:"Philips S5885/50 Rasierer SkinIQ 360°",           category:"Rasieren & Pflege",       price:134.90, ek:89.90,  shipping:6.99, stock:0,  stockExternal:300, delivery:"3-5 Werktage", sku:"S5885/50",    images:["https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=600&q=80"], description:"SkinIQ 360° Nass & Trocken, 90.000 Schnitte/Min, Smart Cleaning System, 60 Min Akku. Inkl. kostenlosem Versand." },
-  { id:17, name:"Philips Ironing Center PSG7130/20",                category:"Haushalt",               price:219.00, ek:159.00, shipping:8.99, stock:0,  stockExternal:123, delivery:"3-5 Werktage", sku:"PSG7130/20",  images:["https://images.unsplash.com/photo-1626785774573-4b799315345d?w=600&q=80"], description:"Dampfbügelstation 7000 Series, 8 bar, 160g Dampfstoß, OptimalTemp-Sohle, 1,5 L Tank. Inkl. kostenlosem Versand." },
+  { id:9,  name:"Oral-B iO Series 2 Elektrische Zahnbürste",       category:"Zahnpflege",             price:44.90,  ek:29.90,  shipping:5.49, stock:0,  stockExternal:1184,delivery:"3-5 Werktage", sku:"IO2LABORATORY/BK", images:["https://images.unsplash.com/photo-1559757175-5700dde675bc?w=600&q=80"], description:"iO Magnettechnologie, 3 Reinigungsmodi, Andruckkontrolle, Reiseetui, USB-Ladestation. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:10, name:"Philips Sonicare 2100 HX3651 Zahnbürste",         category:"Zahnpflege",             price:32.90,  ek:19.90,  shipping:5.49, stock:0,  stockExternal:3650,delivery:"3-5 Werktage", sku:"HX3651/12",    images:["https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=600&q=80"], description:"Sonicare Schalltechnologie, 31.000 Bewegungen/Min, SmartTimer, USB-Ladekabel. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:11, name:"Philips Sonicare 3100 HX3673 Zahnbürste",         category:"Zahnpflege",             price:54.90,  ek:32.50,  shipping:5.49, stock:0,  stockExternal:600, delivery:"3-5 Werktage", sku:"HX3673/13",    images:["https://images.unsplash.com/photo-1606811841689-23dfddce3e95?w=600&q=80"], description:"Schallzahnbürste 3100 Series, Drucksensor, 2-Wochen-Akku, Andruckkontrolle. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:12, name:"Oral-B iO Series 4 Zahnbürste Magnetic",          category:"Zahnpflege",             price:94.90,  ek:59.00,  shipping:5.49, stock:0,  stockExternal:346, delivery:"3-5 Werktage", sku:"IO4MAGNETIC/BK",images:["https://images.unsplash.com/photo-1607613009820-a29f7bb81c04?w=600&q=80"], description:"iO Magnettechnologie, 4 Reinigungsmodi, farbiges Display, Andruckkontrolle, Reiseetui. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:13, name:"Braun Silk-épil 5-620 Epilierer Wet & Dry",       category:"Rasieren & Pflege",       price:69.90,  ek:39.90,  shipping:6.99, stock:0,  stockExternal:989, delivery:"3-5 Werktage", sku:"SES5-620",     images:["https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&q=80"], description:"Wet & Dry Epilierer, 40 Pinzetten, 3 Zubehörteile, Rasieraufsatz, 30 Min Akku. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:14, name:"Braun Silk-épil 9 SES9-000 Epilierer SensoSmart", category:"Rasieren & Pflege",       price:119.00, ek:75.00,  shipping:6.99, stock:0,  stockExternal:251, delivery:"3-5 Werktage", sku:"SES9-000",     images:["https://images.unsplash.com/photo-1620756236308-65c3ef5d25f3?w=600&q=80"], description:"Premium Wet & Dry Epilierer, SensoSmart-Technologie, 40 Pinzetten, Massage-Aufsatz. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:15, name:"Pioneer MVH-230BT Autoradio Bluetooth",            category:"Autoradio & Navigation",  price:79.90,  ek:49.90,  shipping:5.49, stock:0,  stockExternal:460, delivery:"3-5 Werktage", sku:"MVH-230BT",   images:["https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80"], description:"1-DIN Mediareceiver, Bluetooth Audio & Freisprechen, USB, RDS Tuner, 4×50W MOSFET. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:16, name:"Philips S5885/50 Rasierer SkinIQ 360°",           category:"Rasieren & Pflege",       price:134.90, ek:89.90,  shipping:6.99, stock:0,  stockExternal:300, delivery:"3-5 Werktage", sku:"S5885/50",    images:["https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=600&q=80"], description:"SkinIQ 360° Nass & Trocken, 90.000 Schnitte/Min, Smart Cleaning System, 60 Min Akku. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
+  { id:17, name:"Philips Ironing Center PSG7130/20",                category:"Haushalt",               price:219.00, ek:159.00, shipping:8.99, stock:0,  stockExternal:123, delivery:"3-5 Werktage", sku:"PSG7130/20",  images:["https://images.unsplash.com/photo-1626785774573-4b799315345d?w=600&q=80"], description:"Dampfbügelstation 7000 Series, 8 bar, 160g Dampfstoß, OptimalTemp-Sohle, 1,5 L Tank. Inkl. kostenlosem Versand." , supplier:"Mediaelectronics Spain" },
 
   // ── NEUE ARTIKEL (Lagerliste dbreactor 29.05.2026) ──────────────────────────
-  { id:18, name:"Pioneer SPH-PF97BT 9\" Touchscreen Autoradio",      category:"Autoradio & Navigation",  price:414.90, ek:331.83, shipping:7.99, stock:0,  stockExternal:71,  delivery:"2-4 Werktage", sku:"SPH-PF97BT",  images:["https://images.cdn.aisleriot.com/v1/productImages/b2f5b6c3-3ba7-4d47-9e89-5e07a5e4b3f2/1/convertedCompressedImage.jpg","https://images.unsplash.com/photo-1547394765-185e1e68f34e?w=600&q=80"], description:'9" Floating 1-DIN, Apple CarPlay (kabellos), Android Auto (kabellos), Bluetooth, WiFi, DAB+, Touchscreen. Inkl. kostenlosem Versand.' },
-  { id:19, name:"Pioneer MVH-S420BT Autoradio 13-Band EQ",           category:"Autoradio & Navigation",  price:79.90,  ek:67.71,  shipping:5.49, stock:0,  stockExternal:38,  delivery:"1-3 Werktage", sku:"MVH-S420BT",  images:["https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80"], description:"1-DIN Bluetooth-Autoradio, 13-Band Grafik-EQ, FLAC, USB, AUX, Freisprechanlage, Spotify. Inkl. kostenlosem Versand." },
-  { id:20, name:"JBL Tune 720BT Wireless Over-Ear Kopfhörer Weiß",   category:"Kopfhörer & Audio",       price:59.90,  ek:44.03,  shipping:4.99, stock:0,  stockExternal:6,   delivery:"2-4 Werktage", sku:"JBLT720BTWHT", images:["https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&q=80"], description:"Wireless Over-Ear, JBL Pure Bass Sound, 76h Akku, Bluetooth 5.3, faltbares Design, Freisprechmikrofon. Inkl. kostenlosem Versand." },
-  { id:21, name:"JBL Wave 200 TWS True Wireless Earbuds",            category:"Kopfhörer & Audio",       price:39.90,  ek:29.75,  shipping:4.99, stock:0,  stockExternal:4,   delivery:"2-4 Werktage", sku:"JBLW200TWSBLK", images:["https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=600&q=80"], description:"True Wireless Earbuds, JBL Deep Bass Sound, 20h Gesamtakku (5h+15h Case), USB-C, kabellos laden. Inkl. kostenlosem Versand." },
-  { id:22, name:"Bose QuietComfort Wireless ANC Kopfhörer",          category:"Kopfhörer & Audio",       price:284.90, ek:212.76, shipping:6.99, stock:0,  stockExternal:2,   delivery:"2-4 Werktage", sku:"884367-0100",  images:["https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=600&q=80"], description:"Premium ANC Over-Ear, Bose QuietComfort, 24h Akku, Alexa & Google integriert, Bluetooth 5.1, Noise Cancelling. Inkl. kostenlosem Versand." },
-  { id:23, name:"Canton DM 5 Soundbar 120W Bluetooth",               category:"Lautsprecher & Soundbar", price:229.90, ek:166.60, shipping:8.99, stock:0,  stockExternal:27,  delivery:"2-4 Werktage", sku:"03793",        images:["https://images.unsplash.com/photo-1545454675-3531b543be5d?w=600&q=80"], description:"Deutsche Soundbar, 120W, Virtual Surround, Bluetooth, opt./koax./analog, Glasoberfläche, Wandmontage möglich. Inkl. kostenlosem Versand." },
-  { id:24, name:"Belkin SoundForm Bolt True Wireless Earbuds",       category:"Kopfhörer & Audio",       price:29.90,  ek:14.28,  shipping:3.99, stock:0,  stockExternal:135, delivery:"1-3 Werktage", sku:"AUC009BTBLK",  images:["https://images.unsplash.com/photo-1606220945770-b5b6c2c55bf1?w=600&q=80"], description:"True Wireless Earbuds, IPX5 wassergeschützt, 30h Gesamtakku (8h+22h Case), Bluetooth 5.2, USB-C Laden. Inkl. kostenlosem Versand." },
-  { id:25, name:"Kenwood KFC-E170P 2-Wege Koaxial Lautsprecher",    category:"Autoradio & Navigation",  price:49.90,  ek:33.86,  shipping:5.49, stock:0,  stockExternal:12,  delivery:"2-4 Werktage", sku:"KFC-E170P",    images:["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80"], description:"2-Wege Koaxial Car Speaker, 170mm, 300W Peak, 92dB, 30-22000Hz. Paar inkl. Montagematerial. Inkl. kostenlosem Versand." },
-  { id:26, name:"Kenwood KFC-E130P 2-Wege Koaxial Lautsprecher",    category:"Autoradio & Navigation",  price:34.90,  ek:24.99,  shipping:5.49, stock:0,  stockExternal:15,  delivery:"2-4 Werktage", sku:"KFC-E130P",    images:["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80"], description:"2-Wege Koaxial Car Speaker, 130mm, 250W Peak, 91dB, 40-22000Hz. Paar inkl. Montagematerial. Inkl. kostenlosem Versand." },
-  { id:27, name:"Shure SM58 Dynamisches Gesangsmikrofon",            category:"Mikrofon & Studio",       price:119.90, ek:91.63,  shipping:5.99, stock:0,  stockExternal:33,  delivery:"1-3 Werktage", sku:"SM58LCE",      images:["https://images.unsplash.com/photo-1520170350707-b2da59970118?w=600&q=80"], description:"Professionelles Gesangsmikrofon, 50-15000Hz, Kardioid, robustes Metallgehäuse, Industrie-Standard auf Bühnen weltweit. Inkl. kostenlosem Versand." },
-  { id:28, name:"Rode Wireless ME Funkmikrofon System",              category:"Mikrofon & Studio",       price:109.90, ek:75.20,  shipping:5.99, stock:0,  stockExternal:28,  delivery:"1-3 Werktage", sku:"WIMICROCW",    images:["https://images.unsplash.com/photo-1478737270239-2f02b77fc618?w=600&q=80"], description:"Kompaktes 2,4GHz Wireless Mikrofon, für Smartphone & Kamera, bis 100m Reichweite, integrierter Windschutz. Inkl. kostenlosem Versand." },
-  { id:29, name:"Yamaha TW-E3B True Wireless Earbuds",               category:"Kopfhörer & Audio",       price:54.90,  ek:34.63,  shipping:4.99, stock:0,  stockExternal:26,  delivery:"2-4 Werktage", sku:"TW-E3BPP",     images:["https://images.unsplash.com/photo-1613040809024-b4ef7ba99bc3?w=600&q=80"], description:"True Wireless Earbuds, Listening Care Technologie, IPX5, 6h+15h Akku, Ambient Sound, Premium-Klang. Inkl. kostenlosem Versand." },
-  { id:30, name:"Alpine iLX-F115D 11\" 1-DIN Multimedia System",     category:"Autoradio & Navigation",  price:1104.90,ek:910.35, shipping:9.99, stock:0,  stockExternal:2,   delivery:"3-5 Werktage", sku:"ILX-F115D",    images:["https://images.unsplash.com/photo-1547394765-185e1e68f34e?w=600&q=80"], description:'11" Floating Display, DAB+, Bluetooth, Apple CarPlay, Android Auto, 4×50W, HDMI. Inkl. kostenlosem Versand.' },
+  { id:18, name:"Pioneer SPH-PF97BT 9\" Touchscreen Autoradio",      category:"Autoradio & Navigation",  price:414.90, ek:331.83, shipping:7.99, stock:0,  stockExternal:71,  delivery:"2-4 Werktage", sku:"SPH-PF97BT",  images:["https://images.cdn.aisleriot.com/v1/productImages/b2f5b6c3-3ba7-4d47-9e89-5e07a5e4b3f2/1/convertedCompressedImage.jpg","https://images.unsplash.com/photo-1547394765-185e1e68f34e?w=600&q=80"], description:'9" Floating 1-DIN, Apple CarPlay (kabellos), Android Auto (kabellos), Bluetooth, WiFi, DAB+, Touchscreen. Inkl. kostenlosem Versand.' , supplier:"dbreactor" },
+  { id:19, name:"Pioneer MVH-S420BT Autoradio 13-Band EQ",           category:"Autoradio & Navigation",  price:79.90,  ek:67.71,  shipping:5.49, stock:0,  stockExternal:38,  delivery:"1-3 Werktage", sku:"MVH-S420BT",  images:["https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80"], description:"1-DIN Bluetooth-Autoradio, 13-Band Grafik-EQ, FLAC, USB, AUX, Freisprechanlage, Spotify. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:20, name:"JBL Tune 720BT Wireless Over-Ear Kopfhörer Weiß",   category:"Kopfhörer & Audio",       price:59.90,  ek:44.03,  shipping:4.99, stock:0,  stockExternal:6,   delivery:"2-4 Werktage", sku:"JBLT720BTWHT", images:["https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&q=80"], description:"Wireless Over-Ear, JBL Pure Bass Sound, 76h Akku, Bluetooth 5.3, faltbares Design, Freisprechmikrofon. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:21, name:"JBL Wave 200 TWS True Wireless Earbuds",            category:"Kopfhörer & Audio",       price:39.90,  ek:29.75,  shipping:4.99, stock:0,  stockExternal:4,   delivery:"2-4 Werktage", sku:"JBLW200TWSBLK", images:["https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=600&q=80"], description:"True Wireless Earbuds, JBL Deep Bass Sound, 20h Gesamtakku (5h+15h Case), USB-C, kabellos laden. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:22, name:"Bose QuietComfort Wireless ANC Kopfhörer",          category:"Kopfhörer & Audio",       price:284.90, ek:212.76, shipping:6.99, stock:0,  stockExternal:2,   delivery:"2-4 Werktage", sku:"884367-0100",  images:["https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=600&q=80"], description:"Premium ANC Over-Ear, Bose QuietComfort, 24h Akku, Alexa & Google integriert, Bluetooth 5.1, Noise Cancelling. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:23, name:"Canton DM 5 Soundbar 120W Bluetooth",               category:"Lautsprecher & Soundbar", price:229.90, ek:166.60, shipping:8.99, stock:0,  stockExternal:27,  delivery:"2-4 Werktage", sku:"03793",        images:["https://images.unsplash.com/photo-1545454675-3531b543be5d?w=600&q=80"], description:"Deutsche Soundbar, 120W, Virtual Surround, Bluetooth, opt./koax./analog, Glasoberfläche, Wandmontage möglich. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:24, name:"Belkin SoundForm Bolt True Wireless Earbuds",       category:"Kopfhörer & Audio",       price:29.90,  ek:14.28,  shipping:3.99, stock:0,  stockExternal:135, delivery:"1-3 Werktage", sku:"AUC009BTBLK",  images:["https://images.unsplash.com/photo-1606220945770-b5b6c2c55bf1?w=600&q=80"], description:"True Wireless Earbuds, IPX5 wassergeschützt, 30h Gesamtakku (8h+22h Case), Bluetooth 5.2, USB-C Laden. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:25, name:"Kenwood KFC-E170P 2-Wege Koaxial Lautsprecher",    category:"Autoradio & Navigation",  price:49.90,  ek:33.86,  shipping:5.49, stock:0,  stockExternal:12,  delivery:"2-4 Werktage", sku:"KFC-E170P",    images:["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80"], description:"2-Wege Koaxial Car Speaker, 170mm, 300W Peak, 92dB, 30-22000Hz. Paar inkl. Montagematerial. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:26, name:"Kenwood KFC-E130P 2-Wege Koaxial Lautsprecher",    category:"Autoradio & Navigation",  price:34.90,  ek:24.99,  shipping:5.49, stock:0,  stockExternal:15,  delivery:"2-4 Werktage", sku:"KFC-E130P",    images:["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80"], description:"2-Wege Koaxial Car Speaker, 130mm, 250W Peak, 91dB, 40-22000Hz. Paar inkl. Montagematerial. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:27, name:"Shure SM58 Dynamisches Gesangsmikrofon",            category:"Mikrofon & Studio",       price:119.90, ek:91.63,  shipping:5.99, stock:0,  stockExternal:33,  delivery:"1-3 Werktage", sku:"SM58LCE",      images:["https://images.unsplash.com/photo-1520170350707-b2da59970118?w=600&q=80"], description:"Professionelles Gesangsmikrofon, 50-15000Hz, Kardioid, robustes Metallgehäuse, Industrie-Standard auf Bühnen weltweit. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:28, name:"Rode Wireless ME Funkmikrofon System",              category:"Mikrofon & Studio",       price:109.90, ek:75.20,  shipping:5.99, stock:0,  stockExternal:28,  delivery:"1-3 Werktage", sku:"WIMICROCW",    images:["https://images.unsplash.com/photo-1478737270239-2f02b77fc618?w=600&q=80"], description:"Kompaktes 2,4GHz Wireless Mikrofon, für Smartphone & Kamera, bis 100m Reichweite, integrierter Windschutz. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:29, name:"Yamaha TW-E3B True Wireless Earbuds",               category:"Kopfhörer & Audio",       price:54.90,  ek:34.63,  shipping:4.99, stock:0,  stockExternal:26,  delivery:"2-4 Werktage", sku:"TW-E3BPP",     images:["https://images.unsplash.com/photo-1613040809024-b4ef7ba99bc3?w=600&q=80"], description:"True Wireless Earbuds, Listening Care Technologie, IPX5, 6h+15h Akku, Ambient Sound, Premium-Klang. Inkl. kostenlosem Versand." , supplier:"dbreactor" },
+  { id:30, name:"Alpine iLX-F115D 11\" 1-DIN Multimedia System",     category:"Autoradio & Navigation",  price:1104.90,ek:910.35, shipping:9.99, stock:0,  stockExternal:2,   delivery:"3-5 Werktage", sku:"ILX-F115D",    images:["https://images.unsplash.com/photo-1547394765-185e1e68f34e?w=600&q=80"], description:'11" Floating Display, DAB+, Bluetooth, Apple CarPlay, Android Auto, 4×50W, HDMI. Inkl. kostenlosem Versand.' , supplier:"dbreactor" },
 ];
 
 const genId = () => "MKE-" + Date.now().toString(36).toUpperCase();
@@ -1243,10 +1245,12 @@ function OrderModal({ order, onClose, onStatusChange, onSaveDetails, onOpenInvoi
 
 // ── Product Form Modal ────────────────────────────────────────────────────────
 function ProductModal({ product, onSave, onClose }) {
-  const def = { name:"", category:"", price:"", ek:"", shipping:"", stock:"", stockExternal:"", delivery:"", sku:"", images:[], description:"", id:null };
+  const def = { name:"", category:"", price:"", ek:"", shipping:"", stock:"", stockExternal:"", delivery:"", sku:"", images:[], description:"", supplier:"", id:null };
   const init = {...def, ...product, images: product.images || (product.image ? [product.image] : []) };
   const [form, setForm] = useState(init);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const SUPPLIERS = ["Mediaelectronics Spain","dbreactor","Amazon","Sonstige"];
 
   const submit = () => {
     if (!form.name || !form.price) return alert("Name und VK-Preis sind Pflichtfelder.");
@@ -1261,6 +1265,22 @@ function ProductModal({ product, onSave, onClose }) {
         <div className="fr">
           <div className="fg"><label>Kategorie</label><input className="fi" value={form.category} onChange={e=>set("category",e.target.value)} placeholder="z.B. Autoradio" /></div>
           <div className="fg"><label>SKU / Modellnr.</label><input className="fi" value={form.sku} onChange={e=>set("sku",e.target.value)} placeholder="z.B. MVH-S420BT" /></div>
+        </div>
+        {/* Lieferant */}
+        <div className="fr" style={{alignItems:"flex-end"}}>
+          <div className="fg">
+            <label>Lieferant</label>
+            <select className="fi" value={form.supplier} onChange={e=>set("supplier",e.target.value)}>
+              <option value="">— Kein Lieferant —</option>
+              {SUPPLIERS.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          {form.supplier && (
+            <div style={{paddingBottom:".5rem",fontSize:".8rem",color:"var(--mu)",display:"flex",alignItems:"center",gap:".35rem",whiteSpace:"nowrap"}}>
+              <span style={{width:"8px",height:"8px",borderRadius:"50%",background:"var(--ok)",display:"inline-block"}}/>
+              {form.supplier}
+            </div>
+          )}
         </div>
         <div className="fr">
           <div className="fg"><label>Einkaufspreis EK (€)</label><input className="fi" type="number" step="0.01" value={form.ek} onChange={e=>set("ek",e.target.value)} placeholder="0.00" /></div>
@@ -2413,17 +2433,38 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
           <>
             <div className="be-hdr">
               <div className="be-ttl">Produkte</div>
-              <button className="btn btn-p btn-sm" onClick={()=>setProductModal({})}><I d={ICONS.plus} size={14}/> Neues Produkt</button>
+              <div style={{display:"flex",gap:".5rem",alignItems:"center",flexWrap:"wrap"}}>
+                {["Alle","Mediaelectronics Spain","dbreactor"].map(s=>(
+                  <button key={s}
+                    className={`chip${(beSection==="products_supplier"?beSection:s)==="Alle"?"":""}`}
+                    style={{fontSize:".72rem",padding:".25rem .65rem",borderRadius:"99px",cursor:"pointer",border:"1px solid var(--br)",
+                      background: s==="dbreactor" ? "rgba(59,130,246,.1)" : s==="Mediaelectronics Spain" ? "rgba(232,160,32,.1)" : "var(--sf2)",
+                      color: s==="dbreactor" ? "var(--inf)" : s==="Mediaelectronics Spain" ? "var(--acc)" : "var(--tx)",
+                    }}
+                    onClick={()=>{
+                      const tbody = document.querySelectorAll('.tbl tbody tr');
+                      tbody.forEach(row=>{
+                        if(s==="Alle") { row.style.display=""; return; }
+                        const badge = row.querySelector('td:nth-child(4) span');
+                        row.style.display = badge && badge.textContent.includes(s) ? "" : "none";
+                      });
+                    }}>
+                    {s==="Alle"?"Alle Lieferanten":s}
+                  </button>
+                ))}
+                <button className="btn btn-p btn-sm" onClick={()=>setProductModal({})}><I d={ICONS.plus} size={14}/> Neues Produkt</button>
+              </div>
             </div>
             <div className="tbl-wrap">
               <table className="tbl">
-                <thead><tr><th></th><th>Name & SKU</th><th>Kat.</th><th>EK</th><th>Versand</th><th>VK</th><th>eBay</th><th>Netto-Marge</th><th>Eig.Lager</th><th>Außenlager</th><th>Gesamt</th><th>Bilder</th><th>Aktionen</th></tr></thead>
+                <thead><tr><th></th><th>Name & SKU</th><th>Kat.</th><th>Lieferant</th><th>EK</th><th>Versand</th><th>VK</th><th>eBay</th><th>Netto-Marge</th><th>Eig.Lager</th><th>Außenlager</th><th>Gesamt</th><th>Bilder</th><th>Aktionen</th></tr></thead>
                 <tbody>
                   {products.map(p=>{
                     const imgs = p.images || [p.image].filter(Boolean);
                     const m = calcMargin(p.price, p.ek, p.shipping);
                     const { local, ext, total } = stockInfo(p);
                     const mColor = !m ? "var(--mu)" : m.pct >= 25 ? "var(--ok)" : m.pct >= 15 ? "var(--acc)" : "var(--err)";
+                    const supplierColor = p.supplier === "dbreactor" ? "var(--inf)" : p.supplier === "Mediaelectronics Spain" ? "var(--acc)" : "var(--mu)";
                     return (
                       <tr key={p.id}>
                         <td><img className="thumb" src={imgs[0]||"https://placehold.co/36x36/161b23/6e7d96?text=?"} alt="" onError={e=>e.target.src="https://placehold.co/36x36/161b23/6e7d96?text=?"}/></td>
@@ -2432,6 +2473,14 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
                           {p.sku && <div style={{fontSize:".68rem",color:"var(--mu)",fontFamily:"monospace"}}>#{p.sku}</div>}
                         </td>
                         <td style={{color:"var(--mu)",fontSize:".8rem"}}>{p.category}</td>
+                        <td>
+                          {p.supplier
+                            ? <span style={{fontSize:".72rem",fontWeight:600,color:supplierColor,background:`${supplierColor}18`,border:`1px solid ${supplierColor}30`,borderRadius:"5px",padding:".15rem .45rem",whiteSpace:"nowrap"}}>
+                                {p.supplier}
+                              </span>
+                            : <span style={{color:"var(--mu)",fontSize:".75rem"}}>—</span>
+                          }
+                        </td>
                         <td style={{color:"var(--mu)",fontSize:".8rem"}}>{p.ek?fmt(p.ek):"—"}</td>
                         <td style={{color:"var(--mu)",fontSize:".78rem"}}>{p.shipping?fmt(p.shipping):"—"}</td>
                         <td style={{color:"var(--acc)",fontWeight:700}}>{fmt(p.price)}</td>
