@@ -21,15 +21,13 @@ function rowToProduct(r) {
 }
 // Map app product → Supabase row shape
 function productToRow(p) {
-  const row = {
+  return {
     name: p.name, category: p.category, price: p.price,
     ek: p.ek, shipping: p.shipping, stock: p.stock,
     stock_external: p.stockExternal, delivery: p.delivery,
     sku: p.sku, images: p.images, description: p.description,
     supplier: p.supplier||"",
   };
-  if (p.id && typeof p.id === "number" && p.id > 1000) row.id = p.id;
-  return row;
 }
 // Map Supabase row → app order shape
 function rowToOrder(r) {
@@ -3686,7 +3684,7 @@ export default function App() {
 
   const saveProduct = async (prod) => {
     try {
-      if (prod.id && typeof prod.id === "number" && prod.id > 1000) {
+      if (prod.id) {
         // Update existing
         const { data } = await supabase.from("products").update(productToRow(prod)).eq("id", prod.id).select().single();
         if (data) setProducts(ps => ps.map(p => p.id === prod.id ? rowToProduct(data) : p));
@@ -3699,7 +3697,6 @@ export default function App() {
       }
     } catch(e) {
       console.error("Produkt speichern fehlgeschlagen:", e);
-      // Fallback: local only
       if (prod.id) setProducts(ps => ps.map(p => p.id === prod.id ? prod : p));
       else setProducts(ps => [{ ...prod, id: Date.now() }, ...ps]);
     }
