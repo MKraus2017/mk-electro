@@ -3483,7 +3483,8 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
       itemNum:    hi("artikelnummer"),
       title:      hi("angebotstitel"),
       qty:        hi("anzahl"),
-      price:      hi("gesamtbetrag inkl"),
+      price:      hi("gesamtbetrag"),
+      priceInkl:  hi("gesamtbetrag inkl"),
       priceFall:  hi("verkauft für"),
       buyerName:  hi("name des käufers"),
       buyerEmail: hi("e-mail des käufers"),
@@ -3525,7 +3526,16 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
       const f = parseLine(line);
       const get = (idx) => idx > -1 ? (f[idx]||"").replace(/"/g,"").trim() : "";
 
-      const rawPrice = get(cols.price) || get(cols.priceFall);
+      const rawPrice = (() => {
+        // Try gesamtbetrag first (col 49 = "250,00 €")
+        const p1 = get(cols.price);
+        if (p1 && p1 !== "Nein" && p1 !== "") return p1;
+        // Fallback: gesamtbetrag inkl.
+        const p2 = get(cols.priceInkl);
+        if (p2 && p2 !== "Nein" && p2 !== "") return p2;
+        // Last resort: verkauft für
+        return get(cols.priceFall);
+      })();
       const price = parsePrice(rawPrice);
       const qty = parseInt(get(cols.qty)) || 1;
 
