@@ -276,10 +276,17 @@ button{cursor:pointer} img{max-width:100%} a{color:inherit;text-decoration:none}
 .succ-scr{text-align:center;padding:1.8rem 1rem}
 .succ-ic{width:56px;height:56px;background:rgba(34,197,94,.18);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1.2rem;color:var(--ok)}
 .succ-scr h2{font-family:'Barlow Condensed',sans-serif;font-size:1.8rem;font-weight:900;margin-bottom:.65rem}
-.ord-id{background:var(--sf2);border:1px solid var(--br);border-radius:8px;padding:.6rem 1rem;margin:1rem auto;font-family:monospace;font-size:.85rem;color:var(--acc);display:inline-block}
-.bank-box{background:var(--sf2);border:1px solid var(--br);border-radius:8px;padding:.85rem;margin:1rem 0;text-align:left}
+.ord-id{background:var(--sf2);border:1px solid var(--br);border-radius:8px;padding:.6rem 1rem;margin:1rem auto;font-family:monospace;font-size:.85rem;color:var(--acc);display:inline-flex;align-items:center;gap:.6rem}
+.bank-box{background:var(--sf2);border:1px solid var(--br);border-radius:10px;padding:1.1rem 1.2rem;margin:1rem 0;text-align:left}
 .bank-box p{font-size:.78rem;margin:.18rem 0}
 .bank-box strong{color:var(--tx)}.bank-box span{color:var(--mu)}
+.bank-row{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.5rem .7rem;background:var(--sf);border-radius:7px;margin:.4rem 0}
+.bank-row-label{font-size:.68rem;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.15rem}
+.bank-row-value{font-size:.92rem;font-weight:700;color:var(--tx);font-family:monospace;letter-spacing:.5px}
+.copy-btn{background:var(--sf3);border:1px solid var(--br);color:var(--mu);border-radius:5px;padding:.25rem .55rem;font-size:.7rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:.25rem;flex-shrink:0;transition:all .18s;white-space:nowrap}
+.copy-btn:hover{background:var(--acc);border-color:var(--acc);color:#000}
+.copy-btn.copied{background:var(--ok);border-color:var(--ok);color:#fff}
+
 
 /* TRUST / FOOTER */
 .trust{background:var(--sf);border-top:1px solid var(--br);padding:1.2rem 1.8rem;display:flex;justify-content:center;gap:2.2rem;flex-wrap:wrap}
@@ -1121,6 +1128,98 @@ function ProductModal({ product, onSave, onClose }) {
   );
 }
 
+// ── Copy Button ───────────────────────────────────────────────────────────────
+function CopyBtn({ value }) {
+  const [copied, setCopied] = useState(false);
+  const copy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      // Fallback for older browsers
+      const el = document.createElement("textarea");
+      el.value = value; document.body.appendChild(el);
+      el.select(); document.execCommand("copy");
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button className={`copy-btn${copied?" copied":""}`} onClick={copy}>
+      {copied
+        ? <><I d={ICONS.check} size={11}/> Kopiert!</>
+        : <><I d={ICONS.link} size={11}/> Kopieren</>
+      }
+    </button>
+  );
+}
+
+// ── Bank Info Block (reusable) ────────────────────────────────────────────────
+function BankInfo({ orderId, total }) {
+  const iban = "DE59 5467 0024 0032 0051 00";
+  const bic  = "DEUTDEDB546";
+  return (
+    <div className="bank-box">
+      <div style={{fontWeight:700,fontSize:".9rem",color:"var(--tx)",marginBottom:".65rem",display:"flex",alignItems:"center",gap:".4rem"}}>
+        <I d={ICONS.shield} size={15}/> Bankverbindung für Überweisung
+      </div>
+
+      <div className="bank-row">
+        <div>
+          <div className="bank-row-label">Kontoinhaber</div>
+          <div className="bank-row-value" style={{letterSpacing:"normal"}}>MK-Electro · Inh. Andreas Kraus</div>
+        </div>
+      </div>
+
+      <div className="bank-row">
+        <div>
+          <div className="bank-row-label">IBAN</div>
+          <div className="bank-row-value">{iban}</div>
+        </div>
+        <CopyBtn value={iban.replace(/\s/g,"")} />
+      </div>
+
+      <div className="bank-row">
+        <div>
+          <div className="bank-row-label">BIC / SWIFT</div>
+          <div className="bank-row-value">{bic}</div>
+        </div>
+        <CopyBtn value={bic} />
+      </div>
+
+      <div className="bank-row">
+        <div>
+          <div className="bank-row-label">Bank</div>
+          <div className="bank-row-value" style={{letterSpacing:"normal"}}>Deutsche Bank Mannheim</div>
+        </div>
+      </div>
+
+      {orderId && (
+        <div className="bank-row" style={{borderTop:"1px solid var(--br)",marginTop:".5rem",paddingTop:".5rem"}}>
+          <div>
+            <div className="bank-row-label">Verwendungszweck (Bestellnummer)</div>
+            <div className="bank-row-value" style={{color:"var(--acc)"}}>{orderId}</div>
+          </div>
+          <CopyBtn value={orderId} />
+        </div>
+      )}
+
+      {total && (
+        <div style={{marginTop:".65rem",padding:".5rem .7rem",background:"rgba(232,160,32,.08)",border:"1px solid rgba(232,160,32,.2)",borderRadius:"7px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:".78rem",color:"var(--mu)"}}>Zu überweisender Betrag</span>
+          <span style={{fontFamily:"Barlow Condensed",fontWeight:900,fontSize:"1.25rem",color:"var(--acc)"}}>{fmt(total)}</span>
+        </div>
+      )}
+
+      <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".65rem",lineHeight:1.6}}>
+        ⚠️ Bitte geben Sie die Bestellnummer als Verwendungszweck an. Die Bestellung wird nach Zahlungseingang bearbeitet.
+      </div>
+    </div>
+  );
+}
+
 // ── PayPal SDK Loader ─────────────────────────────────────────────────────────
 const PAYPAL_CLIENT_ID = "AURk4HvrNkLuuls5w90A6-Ee9nYD55SnBnNyG3J8MiLFP9YT9s7FWtmkbacLCm_v5dLBojL3u6NWd0jt";
 let paypalLoaded = false;
@@ -1352,9 +1451,11 @@ function Checkout({ cart, cartTotal, onClose, onOrder, setView }) {
                   </span>
                 </div>
                 {payment === "vorkasse" && (
-                  <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".4rem",padding:".5rem",background:"var(--sf)",borderRadius:"6px"}}>
-                    IBAN: DE59 5467 0024 0032 0051 00 · BIC: DEUTDEDB546<br/>
-                    Verwendungszweck: Ihre Bestellnummer (wird nach Bestellung angezeigt)
+                  <div style={{marginTop:".75rem"}}>
+                    <BankInfo />
+                    <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".4rem"}}>
+                      Die Bestellnummer erhalten Sie nach Abschluss der Bestellung.
+                    </div>
                   </div>
                 )}
               </div>
@@ -2558,24 +2659,36 @@ export default function App() {
           <>
             <div className="ov" onClick={()=>setOrderSuccess(null)}/>
             <div className="chk-ov">
-              <div className="chk-box" style={{maxWidth:460}}>
+              <div className="chk-box" style={{maxWidth:520}}>
                 <div className="succ-scr">
                   <div className="succ-ic"><I d={ICONS.check} size={26}/></div>
                   <h2>Bestellung erfolgreich!</h2>
                   <p style={{color:"var(--mu)"}}>Vielen Dank für Ihren Einkauf bei MK-Electro.</p>
-                  <div className="ord-id">#{orderSuccess.id}</div>
+
+                  {/* Order ID mit Kopierfunktion */}
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:".6rem",margin:"1rem auto"}}>
+                    <div className="ord-id">
+                      <I d={ICONS.orders} size={14}/>
+                      #{orderSuccess.id}
+                    </div>
+                    <CopyBtn value={orderSuccess.id} />
+                  </div>
+
+                  {/* Vorkasse: Bankverbindung groß + kopierbar */}
                   {orderSuccess.payment==="vorkasse" && (
-                    <div className="bank-box">
-                      <p><strong>Bitte überweisen Sie auf:</strong></p>
-                      <p><span>Kontoinhaber:</span> <strong>MK-Electro · Inh. Andreas Kraus</strong></p>
-                      <p><span>IBAN:</span> <strong>DE59 5467 0024 0032 0051 00</strong></p>
-                      <p><span>BIC:</span> <strong>DEUTDEDB546</strong></p>
-                      <p><span>Verwendungszweck:</span> <strong>{orderSuccess.id}</strong></p>
-                      <p style={{marginTop:".4rem",color:"var(--acc)",fontSize:".78rem"}}>Betrag: {fmt(orderSuccess.total)}</p>
+                    <BankInfo orderId={orderSuccess.id} total={orderSuccess.total} />
+                  )}
+
+                  {orderSuccess.payment==="paypal" && (
+                    <div style={{background:"rgba(0,156,222,.1)",border:"1px solid rgba(0,156,222,.25)",borderRadius:"10px",padding:"1rem",marginTop:".75rem"}}>
+                      <div style={{fontWeight:700,color:"#009cde",marginBottom:".3rem"}}>💳 PayPal Zahlung bestätigt</div>
+                      <div style={{fontSize:".8rem",color:"var(--mu)"}}>Betrag: <strong style={{color:"var(--tx)"}}>{fmt(orderSuccess.total)}</strong> · Zahlung eingegangen</div>
                     </div>
                   )}
-                  {orderSuccess.payment==="paypal" && <p style={{marginTop:".9rem",color:"var(--mu)",fontSize:".82rem"}}>Sie werden zu PayPal weitergeleitet… (Demo)</p>}
-                  <button className="btn btn-p" style={{marginTop:"1.4rem"}} onClick={()=>setOrderSuccess(null)}>Zurück zum Shop</button>
+
+                  <button className="btn btn-p" style={{marginTop:"1.4rem",width:"100%",justifyContent:"center"}} onClick={()=>setOrderSuccess(null)}>
+                    Zurück zum Shop
+                  </button>
                 </div>
               </div>
             </div>
