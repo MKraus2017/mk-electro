@@ -1,11 +1,52 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-// ── Persistence ───────────────────────────────────────────────────────────────
-const SK = { products: "mke_prod_v5", orders: "mke_ord_v3" };
-async function load(key, fb) {
-  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : fb; } catch { return fb; }
+// ── Supabase ──────────────────────────────────────────────────────────────────
+const supabase = createClient(
+  "https://nssffrjalyauqjlpvblf.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zc2ZmcmphbHlhdXFqbHB2YmxmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyMjA4OTAsImV4cCI6MjA5NTc5Njg5MH0.KlHN0F386n1Lt9KuiiWkWrKZvjB4L2IwwGVSBrPLEwo"
+);
+
+// ── DB helpers ────────────────────────────────────────────────────────────────
+// Map Supabase row → app product shape
+function rowToProduct(r) {
+  return {
+    id: r.id, name: r.name, category: r.category, price: parseFloat(r.price)||0,
+    ek: parseFloat(r.ek)||0, shipping: parseFloat(r.shipping)||0,
+    stock: r.stock||0, stockExternal: r.stock_external||0,
+    delivery: r.delivery||"", sku: r.sku||"",
+    images: r.images||[], description: r.description||"",
+  };
 }
-async function save(key, v) { try { await window.storage.set(key, JSON.stringify(v)); } catch {} }
+// Map app product → Supabase row shape
+function productToRow(p) {
+  const row = {
+    name: p.name, category: p.category, price: p.price,
+    ek: p.ek, shipping: p.shipping, stock: p.stock,
+    stock_external: p.stockExternal, delivery: p.delivery,
+    sku: p.sku, images: p.images, description: p.description,
+  };
+  if (p.id && typeof p.id === "number" && p.id > 1000) row.id = p.id;
+  return row;
+}
+// Map Supabase row → app order shape
+function rowToOrder(r) {
+  return {
+    id: r.id, date: r.date, status: r.status, payment: r.payment,
+    customer: { name: r.customer_name, email: r.customer_email,
+      street: r.customer_street, zip: r.customer_zip, city: r.customer_city },
+    items: r.items||[], total: parseFloat(r.total)||0,
+  };
+}
+// Map app order → Supabase row shape
+function orderToRow(o) {
+  return {
+    id: o.id, date: o.date, status: o.status, payment: o.payment,
+    customer_name: o.customer?.name, customer_email: o.customer?.email,
+    customer_street: o.customer?.street, customer_zip: o.customer?.zip,
+    customer_city: o.customer?.city, items: o.items, total: o.total,
+  };
+}
 
 // ── Default Products ──────────────────────────────────────────────────────────
 // Lagerstand 29.05.2026 — externe Lagerliste aktualisiert
@@ -1782,15 +1823,40 @@ export default function App() {
   const [beAuthError, setBeAuthError] = useState(false);
   const BE_PASSWORD = "MKE2026!"; // ← Passwort hier ändern
 
+  const [dbError, setDbError] = useState(null);
+
   useEffect(() => {
     (async () => {
-      const p = await load(SK.products, DEFAULT_PRODUCTS);
-      const o = await load(SK.orders, []);
-      setProducts(p); setOrders(o); setLoaded(true);
+      try {
+        const [{ data: prods, error: pe }, { data: ords, error: oe }] = await Promise.all([
+          supabase.from("products").select("*").order("id", { ascending: true }),
+          supabase.from("orders").select("*").order("created_at", { ascending: false }),
+        ]);
+        if (pe) throw pe;
+        if (oe) throw oe;
+        // Seed default products if DB is empty
+        if (!prods || prods.length === 0) {
+          const rows = DEFAULT_PRODUCTS.map(p => ({
+            name:p.name, category:p.category, price:p.price, ek:p.ek,
+            shipping:p.shipping, stock:p.stock, stock_external:p.stockExternal,
+            delivery:p.delivery, sku:p.sku, images:p.images, description:p.description,
+          }));
+          const { data: seeded } = await supabase.from("products").insert(rows).select();
+          setProducts((seeded||[]).map(rowToProduct));
+        } else {
+          setProducts(prods.map(rowToProduct));
+        }
+        setOrders((ords||[]).map(rowToOrder));
+        setLoaded(true);
+      } catch(e) {
+        console.error("DB Fehler:", e);
+        setDbError("Datenbankverbindung fehlgeschlagen. Lokale Daten werden verwendet.");
+        setProducts(DEFAULT_PRODUCTS);
+        setOrders([]);
+        setLoaded(true);
+      }
     })();
   }, []);
-  useEffect(() => { if(loaded) save(SK.products, products); }, [products, loaded]);
-  useEffect(() => { if(loaded) save(SK.orders, orders); }, [orders, loaded]);
 
   const categories = ["Alle", ...Array.from(new Set(products.map(p=>p.category)))];
   const filtered = products.filter(p => {
@@ -1813,20 +1879,56 @@ export default function App() {
   const cartTotal = cart.reduce((s,i)=>s+i.price*i.qty, 0);
   const cartCount = cart.reduce((s,i)=>s+i.qty, 0);
 
-  const placeOrder = (data) => {
-    const order = { id:genId(), date:fmtDate(), status:"Neu", payment:data.payment, customer:data.customer, items:cart, total:cartTotal };
-    setOrders(o=>[order,...o]);
+  const placeOrder = async (data) => {
+    const order = {
+      id: genId(), date: fmtDate(), status: "Neu",
+      payment: data.payment, customer: data.customer,
+      items: cart, total: cartTotal
+    };
+    // Save to Supabase
+    try {
+      await supabase.from("orders").insert(orderToRow(order));
+    } catch(e) { console.error("Bestellung speichern fehlgeschlagen:", e); }
+    setOrders(o => [order, ...o]);
     setCart([]); setCheckoutOpen(false); setOrderSuccess(order); setCartOpen(false);
-    sendOrderNotification(order); // → sendet E-Mail an shop@mk-electro.com
+    sendOrderNotification(order);
   };
 
-  const saveProduct = (prod) => {
-    if(prod.id) setProducts(ps=>ps.map(p=>p.id===prod.id?prod:p));
-    else setProducts(ps=>[{...prod,id:Date.now()},...ps]);
+  const saveProduct = async (prod) => {
+    try {
+      if (prod.id && typeof prod.id === "number" && prod.id > 1000) {
+        // Update existing
+        const { data } = await supabase.from("products").update(productToRow(prod)).eq("id", prod.id).select().single();
+        if (data) setProducts(ps => ps.map(p => p.id === prod.id ? rowToProduct(data) : p));
+      } else {
+        // Insert new
+        const row = productToRow(prod);
+        delete row.id;
+        const { data } = await supabase.from("products").insert(row).select().single();
+        if (data) setProducts(ps => [rowToProduct(data), ...ps]);
+      }
+    } catch(e) {
+      console.error("Produkt speichern fehlgeschlagen:", e);
+      // Fallback: local only
+      if (prod.id) setProducts(ps => ps.map(p => p.id === prod.id ? prod : p));
+      else setProducts(ps => [{ ...prod, id: Date.now() }, ...ps]);
+    }
     setProductModal(null);
   };
-  const deleteProduct = (id) => setProducts(ps=>ps.filter(p=>p.id!==id));
-  const updateOrderStatus = (id,status) => setOrders(os=>os.map(o=>o.id===id?{...o,status}:o));
+
+  const deleteProduct = async (id) => {
+    try {
+      await supabase.from("products").delete().eq("id", id);
+    } catch(e) { console.error("Produkt löschen fehlgeschlagen:", e); }
+    setProducts(ps => ps.filter(p => p.id !== id));
+  };
+
+  const updateOrderStatus = async (id, status) => {
+    try {
+      await supabase.from("orders").update({ status }).eq("id", id);
+    } catch(e) { console.error("Status Update fehlgeschlagen:", e); }
+    setOrders(os => os.map(o => o.id === id ? { ...o, status } : o));
+  };
 
   const handleBeLogin = () => {
     if (bePassword === BE_PASSWORD) {
@@ -1869,6 +1971,11 @@ export default function App() {
             </button>
           )}
         </nav>
+        {dbError && (
+          <div style={{background:"rgba(239,68,68,.12)",borderBottom:"1px solid rgba(239,68,68,.3)",padding:".6rem 1.8rem",fontSize:".8rem",color:"var(--err)",display:"flex",alignItems:"center",gap:".6rem"}}>
+            <I d={ICONS.x} size={14}/> {dbError}
+          </div>
+        )}
 
         {view==="shop" && (
           <ShopView
