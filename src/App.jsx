@@ -426,7 +426,39 @@ select.fi{appearance:auto}
 .inv-bank strong{color:#e8a020}
 .mail-sent{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:.7rem 1rem;display:flex;align-items:center;gap:.6rem;font-size:.83rem;color:var(--ok);margin-top:.8rem}
 
-/* CUSTOMER MANAGEMENT */
+/* PRODUCT DETAIL MODAL */
+.pd-modal{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:350;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(6px)}
+.pd-box{background:var(--sf);border:1px solid var(--br);border-radius:18px;width:min(880px,100%);max-height:92vh;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;position:relative}
+@media(max-width:640px){.pd-box{grid-template-columns:1fr}}
+.pd-gallery{position:relative;background:var(--sf2);border-radius:18px 0 0 18px;overflow:hidden;min-height:420px;display:flex;flex-direction:column}
+@media(max-width:640px){.pd-gallery{border-radius:18px 18px 0 0;min-height:280px}}
+.pd-main-img{width:100%;flex:1;object-fit:cover;min-height:320px}
+.pd-thumbs{display:flex;gap:.4rem;padding:.6rem;background:rgba(0,0,0,.3);overflow-x:auto}
+.pd-thumb{width:52px;height:52px;border-radius:6px;object-fit:cover;flex-shrink:0;cursor:pointer;border:2px solid transparent;transition:border-color .15s;opacity:.7}
+.pd-thumb.on{border-color:var(--acc);opacity:1}
+.pd-thumb:hover{opacity:1}
+.pd-nav-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.6);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;z-index:2}
+.pd-nav-btn:hover{background:var(--acc);color:#000}
+.pd-nav-left{left:.6rem} .pd-nav-right{right:.6rem}
+.pd-info{padding:2rem;display:flex;flex-direction:column;gap:1rem;overflow-y:auto}
+.pd-cat{font-size:.72rem;font-weight:700;color:var(--acc);text-transform:uppercase;letter-spacing:1.5px}
+.pd-name{font-family:'Barlow Condensed',sans-serif;font-size:1.75rem;font-weight:900;line-height:1.1}
+.pd-sku{font-size:.72rem;color:var(--mu);font-family:monospace}
+.pd-desc{font-size:.88rem;color:var(--mu);line-height:1.7}
+.pd-divider{height:1px;background:var(--br);margin:.25rem 0}
+.pd-price-row{display:flex;align-items:baseline;gap:.75rem}
+.pd-price{font-family:'Barlow Condensed',sans-serif;font-size:2.4rem;font-weight:900;color:var(--acc)}
+.pd-vat{font-size:.75rem;color:var(--mu)}
+.pd-close{position:absolute;top:.85rem;right:.85rem;background:var(--sf2);border:1px solid var(--br);color:var(--mu);width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:10;transition:all .15s}
+.pd-close:hover{background:var(--err);border-color:var(--err);color:#fff}
+.pd-features{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.pd-feature{background:var(--sf2);border-radius:8px;padding:.55rem .8rem;font-size:.78rem}
+.pd-feature-lbl{color:var(--mu);font-size:.68rem;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.1rem}
+.pd-feature-val{font-weight:600;color:var(--tx)}
+.pcard{cursor:pointer}
+.pcard-click-hint{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.5));color:#fff;font-size:.72rem;text-align:center;padding:.4rem;opacity:0;transition:opacity .2s}
+.pcard:hover .pcard-click-hint{opacity:1}
+
 .cust-card{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:1.2rem;margin-bottom:1rem;cursor:pointer;transition:all .18s}
 .cust-card:hover{border-color:var(--acc);transform:translateY(-1px);box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .cust-card-hdr{display:flex;align-items:center;gap:1rem;margin-bottom:.75rem}
@@ -561,80 +593,190 @@ function stockInfo(p) {
   return { local, ext, total, hasLocal, hasExt, localDelivery, extDelivery };
 }
 
-// ── Product Card with image carousel ─────────────────────────────────────────
-function ProductCard({ p, onAddToCart }) {
-  const [imgIdx, setImgIdx] = useState(0);
+// ── Product Card ──────────────────────────────────────────────────────────────
+function ProductCard({ p, onAddToCart, onOpenDetail }) {
   const imgs = p.images || [p.image].filter(Boolean);
-  const { local, ext, total, hasLocal, hasExt, localDelivery, extDelivery } = stockInfo(p);
+  const { total } = stockInfo(p);
 
   return (
-    <div className="pcard">
-      <div className="pcard-img-wrap">
-        <img className="pcard-img" src={imgs[imgIdx] || "https://placehold.co/600x380/161b23/6e7d96?text=Kein+Bild"} alt={p.name}
+    <div className="pcard" onClick={() => onOpenDetail(p)}>
+      <div className="pcard-img-wrap" style={{position:"relative"}}>
+        <img className="pcard-img"
+          src={imgs[0] || "https://placehold.co/600x380/161b23/6e7d96?text=Kein+Bild"}
+          alt={p.name}
           onError={e => e.target.src = "https://placehold.co/600x380/161b23/6e7d96?text=Kein+Bild"} />
         {imgs.length > 1 && (
-          <>
-            <div className="img-count"><I d={ICONS.image} size={10} />{imgs.length}</div>
-            <button onClick={e=>{e.stopPropagation();setImgIdx((imgIdx-1+imgs.length)%imgs.length)}} style={{position:"absolute",left:".3rem",top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,.55)",border:"none",color:"#fff",width:"24px",height:"24px",borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",rotate:"180deg"}}>
-              <I d={ICONS.chev} size={13} />
-            </button>
-            <button onClick={e=>{e.stopPropagation();setImgIdx((imgIdx+1)%imgs.length)}} style={{position:"absolute",right:".3rem",top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,.55)",border:"none",color:"#fff",width:"24px",height:"24px",borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <I d={ICONS.chev} size={13} />
-            </button>
-          </>
+          <div className="img-count"><I d={ICONS.image} size={10}/>{imgs.length} Bilder</div>
         )}
+        <div className="pcard-click-hint">🔍 Klicken für Details</div>
       </div>
-      {imgs.length > 1 && (
-        <div className="img-dots">
-          {imgs.map((_, i) => <button key={i} className={`img-dot${i===imgIdx?" on":""}`} onClick={()=>setImgIdx(i)} />)}
-        </div>
-      )}
       <div className="pcard-body">
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div className="pcat">{p.category}</div>
           {p.sku && <div className="psku">#{p.sku}</div>}
         </div>
         <div className="pname">{p.name}</div>
-        <div className="pdesc">{p.description}</div>
-
-        {/* Stock + delivery display */}
-        <div className="stock-row">
-          {hasLocal && (
-            <div className="stock-line">
-              <span className="stock-dot sd-green"/>
-              <span style={{color:"var(--ok)"}}>
-                {local > 8 ? "Sofort verfügbar" : `Noch ${local} Stk. auf Lager`}
-              </span>
-              <span style={{color:"var(--mu)",marginLeft:"auto"}}>
-                <I d={ICONS.truck} size={11}/> {localDelivery}
-              </span>
-            </div>
-          )}
-          {hasExt && (
-            <div className="stock-line">
-              <span className="stock-dot sd-orange"/>
-              <span style={{color:"#f97316"}}>
-                {ext} Stk. im <span className="ext-tag">Außenlager</span>
-              </span>
-              <span style={{color:"var(--mu)",marginLeft:"auto"}}>
-                <I d={ICONS.truck} size={11}/> {extDelivery}
-              </span>
-            </div>
-          )}
-          {!hasLocal && !hasExt && (
-            <div className="stock-line">
-              <span className="stock-dot sd-gray"/>
-              <span style={{color:"var(--mu)"}}>Nicht verfügbar</span>
-            </div>
-          )}
-        </div>
-
+        <div className="pdesc" style={{WebkitLineClamp:2,display:"-webkit-box",WebkitBoxOrient:"vertical",overflow:"hidden"}}>{p.description}</div>
         <div className="pfoot">
-          <div className="pprice">{fmt(p.price)}</div>
-          <button className="btn btn-p btn-sm" onClick={() => onAddToCart(p)}
+          <div>
+            <div className="pprice">{fmt(p.price)}</div>
+            <div style={{fontSize:".7rem",color:"var(--mu)"}}>inkl. MwSt. & Versand</div>
+          </div>
+          <button className="btn btn-p btn-sm"
+            onClick={e => { e.stopPropagation(); onAddToCart(p); }}
             disabled={total===0} style={{opacity:total===0?.4:1}}>
             In den Warenkorb
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Product Detail Modal ──────────────────────────────────────────────────────
+function ProductDetailModal({ p, onClose, onAddToCart }) {
+  const [imgIdx, setImgIdx] = useState(0);
+  const imgs = p.images?.length ? p.images : [p.image].filter(Boolean);
+  const { local, ext, total, hasLocal, hasExt, localDelivery, extDelivery } = stockInfo(p);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const prev = e => { e.stopPropagation(); setImgIdx(i => (i - 1 + imgs.length) % imgs.length); };
+  const next = e => { e.stopPropagation(); setImgIdx(i => (i + 1) % imgs.length); };
+
+  return (
+    <div className="pd-modal" onClick={onClose}>
+      <div className="pd-box" onClick={e => e.stopPropagation()}>
+        {/* Close button */}
+        <div className="pd-close" onClick={onClose}><I d={ICONS.x} size={14}/></div>
+
+        {/* Gallery */}
+        <div className="pd-gallery">
+          <img className="pd-main-img"
+            src={imgs[imgIdx] || "https://placehold.co/600x500/161b23/6e7d96?text=Kein+Bild"}
+            alt={p.name}
+            onError={e => e.target.src = "https://placehold.co/600x500/161b23/6e7d96?text=Kein+Bild"}
+          />
+          {imgs.length > 1 && (
+            <>
+              <button className="pd-nav-btn pd-nav-left" onClick={prev}>
+                <I d={ICONS.chev} size={16} sw={2.5} style={{rotate:"180deg"}}/>
+              </button>
+              <button className="pd-nav-btn pd-nav-right" onClick={next}>
+                <I d={ICONS.chev} size={16} sw={2.5}/>
+              </button>
+              <div className="pd-thumbs">
+                {imgs.map((src, i) => (
+                  <img key={i} className={`pd-thumb${i===imgIdx?" on":""}`}
+                    src={src} alt="" onClick={() => setImgIdx(i)}
+                    onError={e => e.target.src = "https://placehold.co/52x52/1e2530/6e7d96?text=?"} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="pd-info">
+          <div>
+            <div className="pd-cat">{p.category}</div>
+            <div className="pd-name">{p.name}</div>
+            {p.sku && <div className="pd-sku">Modell: #{p.sku}</div>}
+          </div>
+
+          <div className="pd-divider"/>
+
+          <div className="pd-desc">{p.description}</div>
+
+          {/* Features grid */}
+          <div className="pd-features">
+            <div className="pd-feature">
+              <div className="pd-feature-lbl">Lieferzeit (Lager)</div>
+              <div className="pd-feature-val">{localDelivery}</div>
+            </div>
+            {hasExt && (
+              <div className="pd-feature">
+                <div className="pd-feature-lbl">Lieferzeit (Außenlager)</div>
+                <div className="pd-feature-val" style={{color:"#f97316"}}>{extDelivery}</div>
+              </div>
+            )}
+            <div className="pd-feature">
+              <div className="pd-feature-lbl">Versand</div>
+              <div className="pd-feature-val">Kostenlos (inkl.)</div>
+            </div>
+            <div className="pd-feature">
+              <div className="pd-feature-lbl">Zahlung</div>
+              <div className="pd-feature-val">PayPal · Vorkasse</div>
+            </div>
+          </div>
+
+          <div className="pd-divider"/>
+
+          {/* Stock */}
+          <div className="stock-row">
+            {hasLocal && (
+              <div className="stock-line">
+                <span className="stock-dot sd-green"/>
+                <span style={{color:"var(--ok)",fontSize:".85rem"}}>
+                  {local > 8 ? "Sofort verfügbar" : `Nur noch ${local} Stk. auf Lager`}
+                </span>
+                <span style={{color:"var(--mu)",marginLeft:"auto",fontSize:".8rem"}}>
+                  <I d={ICONS.truck} size={12}/> {localDelivery}
+                </span>
+              </div>
+            )}
+            {hasExt && (
+              <div className="stock-line">
+                <span className="stock-dot sd-orange"/>
+                <span style={{color:"#f97316",fontSize:".85rem"}}>
+                  {ext} Stk. im <span className="ext-tag">Außenlager</span>
+                </span>
+                <span style={{color:"var(--mu)",marginLeft:"auto",fontSize:".8rem"}}>
+                  <I d={ICONS.truck} size={12}/> {extDelivery}
+                </span>
+              </div>
+            )}
+            {!hasLocal && !hasExt && (
+              <div className="stock-line">
+                <span className="stock-dot sd-gray"/>
+                <span style={{color:"var(--mu)"}}>Derzeit nicht verfügbar</span>
+              </div>
+            )}
+          </div>
+
+          <div className="pd-divider"/>
+
+          {/* Price + CTA */}
+          <div>
+            <div className="pd-price-row">
+              <div className="pd-price">{fmt(p.price)}</div>
+              <div className="pd-vat">inkl. 19% MwSt. & Versand</div>
+            </div>
+            <button className="btn btn-p" style={{width:"100%",justifyContent:"center",fontSize:"1rem",marginTop:".85rem",padding:".75rem"}}
+              onClick={() => { onAddToCart(p); onClose(); }}
+              disabled={total===0} style={{opacity:total===0?.5:1,width:"100%",justifyContent:"center",fontSize:"1rem",marginTop:".85rem",padding:".75rem"}}>
+              <I d={ICONS.cart} size={18}/> In den Warenkorb
+            </button>
+            {total===0 && (
+              <div style={{textAlign:"center",fontSize:".78rem",color:"var(--err)",marginTop:".5rem"}}>
+                Derzeit nicht verfügbar
+              </div>
+            )}
+          </div>
+
+          {/* Trust */}
+          <div style={{display:"flex",gap:".75rem",flexWrap:"wrap",marginTop:"auto"}}>
+            {[["Originalware & Garantie",ICONS.check],["Sichere Zahlung",ICONS.shield],["Kostenloser Versand",ICONS.truck]].map(([l,d])=>(
+              <div key={l} style={{display:"flex",alignItems:"center",gap:".3rem",fontSize:".72rem",color:"var(--mu)"}}>
+                <I d={d} size={13} style={{color:"var(--acc)"}}/>{l}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -1355,6 +1497,7 @@ function DatenschutzPage() {
 
 // ── SHOP VIEW ─────────────────────────────────────────────────────────────────
 function ShopView({ products, categories, category, search, setCategory, setSearch, addToCart, setView }) {
+  const [detailProduct, setDetailProduct] = useState(null);
   return (
     <>
       <section className="hero">
@@ -1375,8 +1518,16 @@ function ShopView({ products, categories, category, search, setCategory, setSear
 
       <div className="pgrid">
         {products.length===0 && <p style={{color:"var(--mu)",gridColumn:"1/-1",padding:"2rem"}}>Keine Produkte gefunden.</p>}
-        {products.map(p=><ProductCard key={p.id} p={p} onAddToCart={addToCart}/>)}
+        {products.map(p=><ProductCard key={p.id} p={p} onAddToCart={addToCart} onOpenDetail={setDetailProduct}/>)}
       </div>
+
+      {detailProduct && (
+        <ProductDetailModal
+          p={detailProduct}
+          onClose={() => setDetailProduct(null)}
+          onAddToCart={(prod) => { addToCart(prod); }}
+        />
+      )}
 
       <div className="trust">
         {[["Sichere Zahlung",ICONS.shield],["Schnelle Lieferung",ICONS.truck],["Originalware & Garantie",ICONS.check]].map(([l,d],i)=>(
