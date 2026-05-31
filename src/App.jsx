@@ -406,6 +406,12 @@ footer{background:var(--sf);border-top:1px solid var(--br)}
 .od-total{display:flex;justify-content:space-between;font-family:'Barlow Condensed',sans-serif;font-size:1.18rem;font-weight:900;color:var(--acc);margin-top:.6rem;padding-top:.6rem;border-top:1px solid var(--br)}
 select.fi{appearance:auto}
 
+/* PAYPAL */
+.paypal-btn-wrap{margin-top:.75rem;border-radius:var(--r);overflow:hidden;min-height:50px;background:#ffc439;border-radius:6px}
+.pay-processing{display:flex;align-items:center;justify-content:center;gap:.6rem;padding:1rem;background:rgba(232,160,32,.08);border:1px solid rgba(232,160,32,.2);border-radius:var(--r);font-size:.85rem;color:var(--acc)}
+.pay-error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:var(--r);padding:.75rem 1rem;font-size:.82rem;color:var(--err);margin-top:.5rem}
+
+
 /* INVOICE PREVIEW */
 .inv-preview{background:#fff;color:#111;border-radius:10px;padding:2rem;font-size:.82rem;line-height:1.6;font-family:'Barlow',sans-serif}
 .inv-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:2px solid #e8a020}
@@ -1086,54 +1092,225 @@ function ProductModal({ product, onSave, onClose }) {
   );
 }
 
+// ── PayPal SDK Loader ─────────────────────────────────────────────────────────
+const PAYPAL_CLIENT_ID = "AURk4HvrNkLuuls5w90A6-Ee9nYD55SnBnNyG3J8MiLFP9YT9s7FWtmkbacLCm_v5dLBojL3u6NWd0jt";
+let paypalLoaded = false;
+function loadPayPalSDK() {
+  return new Promise((resolve, reject) => {
+    if (paypalLoaded || window.paypal) { paypalLoaded = true; resolve(); return; }
+    const script = document.createElement("script");
+    script.src = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&currency=EUR&locale=de_DE`;
+    script.onload = () => { paypalLoaded = true; resolve(); };
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+// ── PayPal Button Component ───────────────────────────────────────────────────
+function PayPalButton({ amount, onSuccess, onError, disabled }) {
+  const containerRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    if (disabled) return;
+    let buttons = null;
+    (async () => {
+      try {
+        await loadPayPalSDK();
+        if (!containerRef.current) return;
+        containerRef.current.innerHTML = "";
+        buttons = window.paypal.Buttons({
+          style: {
+            layout: "vertical", color: "gold", shape: "rect",
+            label: "pay", height: 48,
+          },
+          createOrder: (data, actions) => {
+            return actions.order.create({
+              purchase_units: [{
+                amount: { value: amount.toFixed(2), currency_code: "EUR" },
+                description: "MK-Electro Bestellung",
+              }],
+              application_context: {
+                brand_name: "MK-Electro",
+                locale: "de-DE",
+                user_action: "PAY_NOW",
+              },
+            });
+          },
+          onApprove: async (data, actions) => {
+            const details = await actions.order.capture();
+            onSuccess(details);
+          },
+          onError: (err) => {
+            console.error("PayPal Fehler:", err);
+            setErr("PayPal Fehler. Bitte versuche es erneut.");
+            if (onError) onError(err);
+          },
+          onCancel: () => {
+            setErr("Zahlung abgebrochen. Du kannst es erneut versuchen.");
+          },
+        });
+        await buttons.render(containerRef.current);
+        setLoading(false);
+      } catch(e) {
+        setErr("PayPal konnte nicht geladen werden. Bitte Seite neu laden.");
+        setLoading(false);
+      }
+    })();
+    return () => { if (buttons) buttons.close?.(); };
+  }, [amount, disabled]);
+
+  if (disabled) return null;
+  return (
+    <div>
+      {loading && (
+        <div className="pay-processing">
+          <I d={ICONS.shield} size={16}/> PayPal wird geladen…
+        </div>
+      )}
+      <div ref={containerRef} className="paypal-btn-wrap" style={{display:loading?"none":"block"}}/>
+      {err && <div className="pay-error"><I d={ICONS.x} size={13}/> {err}</div>}
+    </div>
+  );
+}
+
 // ── CHECKOUT ──────────────────────────────────────────────────────────────────
 function Checkout({ cart, cartTotal, onClose, onOrder }) {
   const [payment, setPayment] = useState("paypal");
   const [c, setC] = useState({name:"",email:"",street:"",zip:"",city:""});
   const [err, setErr] = useState({});
+  const [step, setStep] = useState("form"); // form | paypal | processing
+  const [paypalError, setPaypalError] = useState(null);
   const sc = (k,v) => setC(x=>({...x,[k]:v}));
+
   const validate = () => {
     const e={};
-    if(!c.name.trim())e.name=1; if(!c.email.includes("@"))e.email=1;
-    if(!c.street.trim())e.street=1; if(!c.zip.trim())e.zip=1; if(!c.city.trim())e.city=1;
+    if(!c.name.trim())e.name=1;
+    if(!c.email.includes("@"))e.email=1;
+    if(!c.street.trim())e.street=1;
+    if(!c.zip.trim())e.zip=1;
+    if(!c.city.trim())e.city=1;
     setErr(e); return !Object.keys(e).length;
   };
+
+  const handleVorkasse = () => {
+    if (validate()) onOrder({ payment:"vorkasse", customer:c });
+  };
+
+  const handlePayPalSuccess = (details) => {
+    setStep("processing");
+    onOrder({
+      payment: "paypal",
+      customer: c,
+      paypalOrderId: details.id,
+      paypalPayer: details.payer,
+    });
+  };
+
+  const handleContinueToPayPal = () => {
+    if (validate()) setStep("paypal");
+  };
+
   return (
     <>
       <div className="ov" onClick={onClose}/>
       <div className="chk-ov">
         <div className="chk-box">
           <h2>Kasse</h2>
-          <div className="sec-ttl">Ihre Daten</div>
-          <div className="fg"><label>Vor- & Nachname</label><input className={`fi${err.name?" err":""}`} placeholder="Max Mustermann" value={c.name} onChange={e=>sc("name",e.target.value)}/></div>
-          <div className="fg"><label>E-Mail</label><input className={`fi${err.email?" err":""}`} type="email" placeholder="max@beispiel.de" value={c.email} onChange={e=>sc("email",e.target.value)}/></div>
-          <div className="fg"><label>Straße & Hausnummer</label><input className={`fi${err.street?" err":""}`} placeholder="Musterstraße 12" value={c.street} onChange={e=>sc("street",e.target.value)}/></div>
-          <div className="fr">
-            <div className="fg"><label>PLZ</label><input className={`fi${err.zip?" err":""}`} placeholder="12345" value={c.zip} onChange={e=>sc("zip",e.target.value)}/></div>
-            <div className="fg"><label>Stadt</label><input className={`fi${err.city?" err":""}`} placeholder="Berlin" value={c.city} onChange={e=>sc("city",e.target.value)}/></div>
-          </div>
-          <div className="sec-ttl">Zahlungsart</div>
-          <div className="pay-opts">
-            <div className={`popt${payment==="paypal"?" on":""}`} onClick={()=>setPayment("paypal")}>
-              <div className="pp-logo">Pay<span>Pal</span></div>
-              <div className="popt-lbl">PayPal</div><div className="popt-sub">Schnell & sicher</div>
+
+          {step === "processing" ? (
+            <div className="pay-processing" style={{flexDirection:"column",gap:"1rem",padding:"2rem"}}>
+              <I d={ICONS.check} size={32}/>
+              <div style={{fontWeight:700}}>Zahlung erfolgreich!</div>
+              <div style={{fontSize:".82rem",color:"var(--mu)"}}>Bestellung wird verarbeitet…</div>
             </div>
-            <div className={`popt${payment==="vorkasse"?" on":""}`} onClick={()=>setPayment("vorkasse")}>
-              <div style={{fontSize:"1.1rem"}}>🏦</div>
-              <div className="popt-lbl">Vorkasse</div><div className="popt-sub">Banküberweisung</div>
-            </div>
-          </div>
-          <div className="sec-ttl">Bestellübersicht</div>
-          <div className="ord-sum">
-            {cart.map(i=><div key={i.id} className="srow"><span>{i.name.split(" ").slice(0,4).join(" ")} ×{i.qty}</span><span>{fmt(i.price*i.qty)}</span></div>)}
-            <div className="srow stotal"><span>Gesamt inkl. MwSt.</span><span>{fmt(cartTotal)}</span></div>
-          </div>
-          <div className="chk-acts">
-            <button className="btn btn-o" onClick={onClose}>Abbrechen</button>
-            <button className="btn btn-p" onClick={()=>{ if(validate()) onOrder({payment,customer:c}); }}>
-              {payment==="paypal"?"Weiter zu PayPal →":"Kostenpflichtig bestellen →"}
-            </button>
-          </div>
+          ) : (
+            <>
+              {/* Kundendaten */}
+              <div className="sec-ttl">Ihre Daten</div>
+              <div className="fg"><label>Vor- & Nachname</label>
+                <input className={`fi${err.name?" err":""}`} placeholder="Max Mustermann" value={c.name} onChange={e=>sc("name",e.target.value)}/>
+              </div>
+              <div className="fg"><label>E-Mail</label>
+                <input className={`fi${err.email?" err":""}`} type="email" placeholder="max@beispiel.de" value={c.email} onChange={e=>sc("email",e.target.value)}/>
+              </div>
+              <div className="fg"><label>Straße & Hausnummer</label>
+                <input className={`fi${err.street?" err":""}`} placeholder="Musterstraße 12" value={c.street} onChange={e=>sc("street",e.target.value)}/>
+              </div>
+              <div className="fr">
+                <div className="fg"><label>PLZ</label>
+                  <input className={`fi${err.zip?" err":""}`} placeholder="12345" value={c.zip} onChange={e=>sc("zip",e.target.value)}/>
+                </div>
+                <div className="fg"><label>Stadt</label>
+                  <input className={`fi${err.city?" err":""}`} placeholder="Berlin" value={c.city} onChange={e=>sc("city",e.target.value)}/>
+                </div>
+              </div>
+
+              {/* Zahlungsart */}
+              <div className="sec-ttl">Zahlungsart</div>
+              <div className="pay-opts">
+                <div className={`popt${payment==="paypal"?" on":""}`} onClick={()=>{setPayment("paypal");setStep("form");}}>
+                  <div className="pp-logo">Pay<span>Pal</span></div>
+                  <div className="popt-lbl">PayPal</div>
+                  <div className="popt-sub">Schnell & sicher</div>
+                </div>
+                <div className={`popt${payment==="vorkasse"?" on":""}`} onClick={()=>{setPayment("vorkasse");setStep("form");}}>
+                  <div style={{fontSize:"1.1rem"}}>🏦</div>
+                  <div className="popt-lbl">Vorkasse</div>
+                  <div className="popt-sub">Banküberweisung</div>
+                </div>
+              </div>
+
+              {/* Bestellübersicht */}
+              <div className="sec-ttl">Bestellübersicht</div>
+              <div className="ord-sum">
+                {cart.map(i=>(
+                  <div key={i.id} className="srow">
+                    <span>{i.name.split(" ").slice(0,4).join(" ")} ×{i.qty}</span>
+                    <span>{fmt(i.price*i.qty)}</span>
+                  </div>
+                ))}
+                <div className="srow stotal"><span>Gesamt inkl. MwSt.</span><span>{fmt(cartTotal)}</span></div>
+              </div>
+
+              {/* PayPal Buttons — zeige sie wenn PayPal gewählt */}
+              {payment === "paypal" && step === "paypal" && (
+                <div style={{marginTop:"1rem"}}>
+                  <div style={{fontSize:".8rem",color:"var(--mu)",marginBottom:".75rem",textAlign:"center"}}>
+                    Betrag: <strong style={{color:"var(--acc)"}}>{fmt(cartTotal)}</strong> — Bitte bei PayPal einloggen und bestätigen:
+                  </div>
+                  <PayPalButton
+                    amount={cartTotal}
+                    onSuccess={handlePayPalSuccess}
+                    onError={() => setPaypalError("PayPal Zahlung fehlgeschlagen.")}
+                    disabled={false}
+                  />
+                  {paypalError && <div className="pay-error">{paypalError}</div>}
+                  <button className="btn btn-o btn-sm" style={{marginTop:".75rem",width:"100%",justifyContent:"center"}}
+                    onClick={()=>setStep("form")}>
+                    ← Zurück
+                  </button>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              {step === "form" && (
+                <div className="chk-acts">
+                  <button className="btn btn-o" onClick={onClose}>Abbrechen</button>
+                  {payment === "paypal" ? (
+                    <button className="btn btn-p" onClick={handleContinueToPayPal}>
+                      Weiter zu PayPal →
+                    </button>
+                  ) : (
+                    <button className="btn btn-p" onClick={handleVorkasse}>
+                      Kostenpflichtig bestellen →
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </>
@@ -2036,11 +2213,12 @@ export default function App() {
 
   const placeOrder = async (data) => {
     const order = {
-      id: genId(), date: fmtDate(), status: "Neu",
+      id: genId(), date: fmtDate(),
+      status: data.payment === "paypal" ? "Bezahlt" : "Neu", // PayPal = sofort bezahlt
       payment: data.payment, customer: data.customer,
-      items: cart, total: cartTotal
+      items: cart, total: cartTotal,
+      paypalOrderId: data.paypalOrderId || null,
     };
-    // Save to Supabase
     try {
       await supabase.from("orders").insert(orderToRow(order));
     } catch(e) { console.error("Bestellung speichern fehlgeschlagen:", e); }
