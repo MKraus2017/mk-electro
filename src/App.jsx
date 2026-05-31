@@ -888,25 +888,57 @@ function ProductDetailModal({ p, onClose, onAddToCart }) {
 // ── Invoice Generator ─────────────────────────────────────────────────────────
 function generateInvoiceHTML(order, invoiceNr) {
   const mwst = 19;
-  const netto = order.total / (1 + mwst/100);
-  const mwstBetrag = order.total - netto;
-  const itemsHtml = (order.items || []).map(i => `
+  // Shipping cost: 6€ under 50€ subtotal, free above
+  const subtotal = (order.items||[]).reduce((s,i) => s + i.price * i.qty, 0);
+  const shipping = order.shipping_cost != null
+    ? order.shipping_cost
+    : (subtotal >= 50 ? 0 : (subtotal > 0 ? 6 : 0));
+  const total = order.total; // already includes shipping
+  const netto = total / (1 + mwst/100);
+  const mwstBetrag = total - netto;
+  const nettoItems = subtotal / (1 + mwst/100);
+
+  // Build serial numbers map: { itemId -> serial }
+  const serialMap = {};
+  if (order.serial_numbers) {
+    (order.serial_numbers).forEach(s => { if (s.serial) serialMap[s.id] = s.serial; });
+  }
+
+  const itemsHtml = (order.items || []).map(i => {
+    const serial = serialMap[i.id];
+    return `
     <tr>
-      <td>${i.name}</td>
+      <td>
+        ${i.name}
+        ${serial ? `<div style="font-size:.7rem;color:#888;font-family:monospace;margin-top:.2rem">SN: ${serial}</div>` : ""}
+      </td>
       <td style="text-align:center">${i.qty}</td>
       <td style="text-align:right">${fmt(i.price)}</td>
       <td style="text-align:right">${fmt(i.price * i.qty)}</td>
-    </tr>
-  `).join("");
+    </tr>`;
+  }).join("");
+
+  const shippingRow = shipping > 0
+    ? `<tr><td colspan="3">Versandkosten</td><td style="text-align:right">${fmt(shipping)}</td></tr>`
+    : `<tr><td colspan="3" style="color:#22c55e">Versandkosten</td><td style="text-align:right;color:#22c55e">Kostenlos</td></tr>`;
+
+  const trackingHtml = (order.carrier || order.tracking_number) ? `
+    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.65rem .9rem;margin:.8rem 0;font-size:.78rem;">
+      <strong style="color:#0369a1">📦 Versandinformationen</strong><br/>
+      ${order.carrier ? `Versanddienstleister: <strong>${order.carrier}</strong><br/>` : ""}
+      ${order.tracking_number ? `Trackingnummer: <strong style="font-family:monospace">${order.tracking_number}</strong>` : ""}
+    </div>` : "";
+
   const paymentNote = order.payment === "vorkasse"
-    ? `<div class="inv-bank"><strong>Bitte überweisen Sie auf:</strong><br>Kontoinhaber: MK-Electro · IBAN: DE59 5467 0024 0032 0051 00 · BIC: DEUTDEDB546<br>Verwendungszweck: ${order.id}</div>`
+    ? `<div class="inv-bank"><strong>Bitte überweisen Sie auf:</strong><br>Kontoinhaber: MK-Electro · Inh. Andreas Kraus · IBAN: DE59 5467 0024 0032 0051 00 · BIC: DEUTDEDB546<br>Verwendungszweck: ${order.id}</div>`
     : `<p style="font-size:.75rem;color:#555">Zahlung per PayPal – Betrag bereits autorisiert.</p>`;
+
   return `
     <div class="inv-preview" id="invoice-${order.id}">
       <div class="inv-hdr">
         <div class="inv-company">
           <h2>MK·ELECTRO</h2>
-          <p>mk-electro.com · Von-Drais-Straße 3a · 68775 Ketsch<br>Tel: +49 (0) 6202 · 123456 · shop@mk-electro.com<br>USt-ID: DE123456789 · HRB 12345 Berlin</p>
+          <p>mk-electro.com · Von-Drais-Straße 3a · 68775 Ketsch<br>Tel: +49 (0) 6202 · 123456 · shop@mk-electro.com<br>USt-ID: DE123456789</p>
         </div>
         <div class="inv-meta">
           <strong>RECHNUNG</strong>
@@ -924,13 +956,15 @@ function generateInvoiceHTML(order, invoiceNr) {
         <thead><tr><th>Artikel</th><th style="text-align:center">Menge</th><th style="text-align:right">Einzelpreis</th><th style="text-align:right">Gesamt</th></tr></thead>
         <tbody>${itemsHtml}</tbody>
         <tfoot>
-          <tr><td colspan="3">Netto</td><td style="text-align:right">${fmt(netto)}</td></tr>
+          ${shippingRow}
+          <tr><td colspan="3">Netto (Artikel + Versand)</td><td style="text-align:right">${fmt(netto)}</td></tr>
           <tr><td colspan="3">MwSt. ${mwst}%</td><td style="text-align:right">${fmt(mwstBetrag)}</td></tr>
-          <tr style="font-size:1rem"><td colspan="3"><strong>Gesamtbetrag (inkl. MwSt.)</strong></td><td style="text-align:right;color:#e8a020"><strong>${fmt(order.total)}</strong></td></tr>
+          <tr style="font-size:1rem"><td colspan="3"><strong>Gesamtbetrag (inkl. MwSt.)</strong></td><td style="text-align:right;color:#e8a020"><strong>${fmt(total)}</strong></td></tr>
         </tfoot>
       </table>
+      ${trackingHtml}
       ${paymentNote}
-      <div class="inv-footer">Vielen Dank für Ihren Einkauf! · MK-Electro · Von-Drais-Straße 3a · 68775 Ketsch<br>Kein Ausweis der Steuer, da Kleinunternehmerregelung nach §19 UStG – oder USt-ID: DE123456789</div>
+      <div class="inv-footer">Vielen Dank für Ihren Einkauf! · MK-Electro · Von-Drais-Straße 3a · 68775 Ketsch<br>Kein Ausweis der Steuer, da Kleinunternehmerregelung nach §19 UStG</div>
     </div>
   `;
 }
