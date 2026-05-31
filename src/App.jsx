@@ -2616,6 +2616,117 @@ function ShopView({ products, categories, category, search, setCategory, setSear
   );
 }
 
+// ── ANALYTICS SECTION ─────────────────────────────────────────────────────────
+function AnalyticsSection() {
+  const GA_ID = "G-DSZ1FNFSDZ";
+  const [period, setPeriod] = useState("7");
+
+  // Report embed URLs for Google Analytics 4
+  const reportUrl = `https://analytics.google.com/analytics/web/#/p${GA_ID.replace("G-","")}/reports/intelligenthome`;
+
+  return (
+    <>
+      <div className="be-hdr">
+        <div>
+          <div className="be-ttl" style={{display:"flex",alignItems:"center",gap:".6rem"}}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2" stroke="#E8751A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Besucher Analytics
+          </div>
+          <div style={{fontSize:".78rem",color:"var(--mu)",marginTop:".15rem"}}>
+            Google Analytics · {GA_ID}
+          </div>
+        </div>
+        <a href="https://analytics.google.com" target="_blank" rel="noreferrer"
+          className="btn btn-o btn-sm">
+          <I d={ICONS.link} size={13}/> Google Analytics öffnen
+        </a>
+      </div>
+
+      {/* Quick stats via GA embed */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"1rem",marginBottom:"1.5rem"}}>
+        {[
+          { label:"Echtzeit-Besucher", desc:"Jetzt auf der Seite", icon:"👥" },
+          { label:"Sitzungen heute", desc:"Besuche gesamt", icon:"📊" },
+          { label:"Top Region", desc:"Meiste Besucher", icon:"📍" },
+          { label:"Absprungrate", desc:"Verlassen ohne Klick", icon:"↩️" },
+        ].map(({label,desc,icon})=>(
+          <div key={label} className="sc" style={{padding:"1rem",display:"flex",gap:".75rem",alignItems:"center"}}>
+            <div style={{fontSize:"1.5rem"}}>{icon}</div>
+            <div>
+              <div style={{fontFamily:"Barlow Condensed",fontWeight:900,fontSize:"1.1rem",color:"var(--acc)"}}>—</div>
+              <div style={{fontSize:".75rem",fontWeight:600}}>{label}</div>
+              <div style={{fontSize:".68rem",color:"var(--mu)"}}>{desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Info card */}
+      <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"14px",padding:"1.5rem",marginBottom:"1.5rem"}}>
+        <div style={{display:"flex",gap:".75rem",alignItems:"flex-start"}}>
+          <div style={{fontSize:"1.5rem",flexShrink:0}}>📊</div>
+          <div>
+            <div style={{fontWeight:700,marginBottom:".4rem"}}>Google Analytics ist aktiv</div>
+            <div style={{fontSize:".83rem",color:"var(--mu)",lineHeight:1.7,marginBottom:"1rem"}}>
+              Alle Besucher werden automatisch erfasst. Detaillierte Auswertungen (Regionen, Geräte, Verweildauer, Seiten) findest du direkt in Google Analytics.
+            </div>
+            <div style={{display:"flex",gap:".75rem",flexWrap:"wrap"}}>
+              <a href="https://analytics.google.com/analytics/web/#/p531869978/reports/intelligenthome"
+                target="_blank" rel="noreferrer" className="btn btn-p btn-sm">
+                📈 Übersicht öffnen
+              </a>
+              <a href="https://analytics.google.com/analytics/web/#/p531869978/reports/explorer?params=_u..nav%3Dmaui%26_u.dateOption%3Dlast7days&r=all-pages-and-screens"
+                target="_blank" rel="noreferrer" className="btn btn-o btn-sm">
+                🗺️ Regionen & Städte
+              </a>
+              <a href="https://analytics.google.com/analytics/web/#/p531869978/realtime"
+                target="_blank" rel="noreferrer" className="btn btn-o btn-sm">
+                ⚡ Echtzeit
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Embedded GA iframe */}
+      <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"14px",padding:"1rem",marginBottom:"1rem"}}>
+        <div style={{fontSize:".78rem",fontWeight:700,marginBottom:".75rem",display:"flex",alignItems:"center",gap:".4rem"}}>
+          <I d={ICONS.link} size={13}/> Direkte Einbettung (Login erforderlich)
+        </div>
+        <iframe
+          src="https://analytics.google.com/analytics/web/#/p531869978/reports/intelligenthome"
+          style={{width:"100%",height:"600px",border:"none",borderRadius:"8px",background:"#fff"}}
+          title="Google Analytics"
+        />
+        <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".5rem",textAlign:"center"}}>
+          Falls leer: <a href="https://analytics.google.com" target="_blank" rel="noreferrer" style={{color:"var(--acc)"}}>Google Analytics direkt öffnen</a> und mit deinem Google-Konto anmelden.
+        </div>
+      </div>
+
+      {/* Quick setup guide if no data yet */}
+      <div style={{background:"rgba(232,160,32,.06)",border:"1px solid rgba(232,160,32,.15)",borderRadius:"12px",padding:"1.2rem"}}>
+        <div style={{fontWeight:700,fontSize:".88rem",marginBottom:".6rem",display:"flex",alignItems:"center",gap:".4rem"}}>
+          <I d={ICONS.check} size={14}/> Setup-Status
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:".4rem"}}>
+          {[
+            ["✅","Google Analytics Property erstellt",true],
+            ["✅","Tracking-Code (G-DSZ1FNFSDZ) eingebaut",true],
+            ["⏳","Erste Daten erscheinen nach ca. 24-48h",false],
+            ["💡","DSGVO: Cookie-Banner empfohlen (optional nachrüsten)",false],
+          ].map(([icon,text,done])=>(
+            <div key={text} style={{display:"flex",gap:".5rem",alignItems:"center",fontSize:".82rem",color:done?"var(--ok)":"var(--mu)"}}>
+              <span>{icon}</span><span>{text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── BACKEND VIEW ──────────────────────────────────────────────────────────────
 function BackendView({ products, orders, setOrders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, updateOrderDetails, deleteCustomer }) {
   const revenue = orders.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
@@ -2670,6 +2781,7 @@ function BackendView({ products, orders, setOrders, beSection, setBeSection, pro
         <div className="be-side-ttl">Navigation</div>
         {[
           {k:"dashboard",  l:"Dashboard",   d:ICONS.home},
+          {k:"analytics",  l:"Besucher",     d:ICONS.search},
           {k:"products",   l:"Produkte",    d:ICONS.box},
           {k:"orders",     l:"Bestellungen",d:ICONS.orders},
           {k:"ebay",       l:"eBay Import", d:ICONS.orders},
@@ -2696,6 +2808,7 @@ function BackendView({ products, orders, setOrders, beSection, setBeSection, pro
 
       <div className="be-ct">
         {/* DASHBOARD */}
+        {beSection==="analytics" && <AnalyticsSection/>}
         {beSection==="dashboard" && (
           <>
             <div className="be-hdr"><div className="be-ttl">Dashboard</div></div>
