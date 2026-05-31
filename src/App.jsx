@@ -629,79 +629,103 @@ select.fi{appearance:auto}
 // ── Image Upload Component ─────────────────────────────────────────────────────
 function ImageUpload({ images = [], onChange }) {
   const [drag, setDrag] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState("");
   const fileRef = useRef();
 
-  const toBase64 = (file) => new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result);
-    r.onerror = rej;
-    r.readAsDataURL(file);
-  });
+  const uploadToSupabase = async (file) => {
+    const ext = file.name.split(".").pop().toLowerCase();
+    const fileName = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const { data, error } = await supabase.storage
+      .from("product-images")
+      .upload(fileName, file, { contentType: file.type, upsert: false });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage
+      .from("product-images")
+      .getPublicUrl(fileName);
+    return publicUrl;
+  };
 
-  const handleFiles = useCallback(async (files) => {
-    const newImgs = [];
+  const handleFiles = async (files) => {
+    setUploading(true); setUploadErr("");
+    const newUrls = [];
     for (const f of Array.from(files)) {
       if (!f.type.startsWith("image/")) continue;
-      // Resize to max 800px wide via canvas
-      const bmp = await createImageBitmap(f);
-      const canvas = document.createElement("canvas");
-      const maxW = 800;
-      const scale = Math.min(1, maxW / bmp.width);
-      canvas.width = Math.round(bmp.width * scale);
-      canvas.height = Math.round(bmp.height * scale);
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-      const b64 = canvas.toDataURL("image/jpeg", 0.82);
-      newImgs.push(b64);
+      if (f.size > 10 * 1024 * 1024) { setUploadErr("Max. 10MB pro Bild."); continue; }
+      try {
+        const url = await uploadToSupabase(f);
+        newUrls.push(url);
+      } catch(e) {
+        setUploadErr("Upload fehlgeschlagen: " + e.message);
+      }
     }
-    onChange([...images, ...newImgs]);
-  }, [images, onChange]);
-
-  const onDrop = (e) => {
-    e.preventDefault(); setDrag(false);
-    handleFiles(e.dataTransfer.files);
+    if (newUrls.length) onChange([...images, ...newUrls]);
+    setUploading(false);
   };
-  const setPrimary = (i) => { const a = [...images]; [a[0], a[i]] = [a[i], a[0]]; onChange(a); };
-  const remove = (i) => onChange(images.filter((_, idx) => idx !== i));
+
+  const onDrop = (e) => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files); };
+  const setPrimary = (i) => { const a = [...images]; [a[0],a[i]]=[a[i],a[0]]; onChange(a); };
+  const remove = async (i) => {
+    // Optional: Bild auch aus Supabase Storage löschen
+    const url = images[i];
+    const path = url.split("/product-images/")[1];
+    if (path) await supabase.storage.from("product-images").remove([path]);
+    onChange(images.filter((_,idx)=>idx!==i));
+  };
 
   return (
     <div>
-      <div className={`img-upload-area${drag ? " drag" : ""}`}
-        onDragOver={e => { e.preventDefault(); setDrag(true); }}
-        onDragLeave={() => setDrag(false)}
+      <div className={`img-upload-area${drag?" drag":""}`}
+        onDragOver={e=>{e.preventDefault();setDrag(true);}}
+        onDragLeave={()=>setDrag(false)}
         onDrop={onDrop}
+        onClick={()=>!uploading&&fileRef.current?.click()}
+        style={{cursor:uploading?"wait":"pointer"}}
       >
-        <input type="file" accept="image/*" multiple onChange={e => handleFiles(e.target.files)} ref={fileRef} />
-        <I d={ICONS.upload} size={28} />
-        <div className="img-upload-txt">
-          <strong>Klicken oder Bilder hier hinziehen</strong><br />
-          Einzel- & Mehrfachauswahl möglich · JPG, PNG, WEBP
-        </div>
+        <input type="file" accept="image/*" multiple
+          onChange={e=>handleFiles(e.target.files)} ref={fileRef} style={{display:"none"}}/>
+        {uploading
+          ? <><div className="spin" style={{width:"28px",height:"28px",border:"3px solid var(--br)",borderTopColor:"var(--acc)",borderRadius:"50%",animation:"spin 1s linear infinite"}}/><div className="img-upload-txt">Wird hochgeladen…</div></>
+          : <><I d={ICONS.upload} size={28}/><div className="img-upload-txt"><strong>Klicken oder Bilder hier hinziehen</strong><br/>JPG, PNG, WEBP · Max. 10MB · Wird in Supabase gespeichert</div></>
+        }
+      </div>
+
+      {uploadErr && <div style={{fontSize:".75rem",color:"var(--err)",marginTop:".3rem",display:"flex",alignItems:"center",gap:".3rem"}}><I d={ICONS.x} size={12}/>{uploadErr}</div>}
+
+      {/* URL manuell eingeben */}
+      <div style={{display:"flex",gap:".4rem",marginTop:".6rem"}}>
+        <input className="fi" style={{fontSize:".78rem"}} placeholder="Oder Bild-URL direkt eingeben (https://...)"
+          onKeyDown={e=>{
+            if(e.key==="Enter"&&e.target.value.startsWith("http")){
+              onChange([...images, e.target.value.trim()]);
+              e.target.value="";
+            }
+          }}/>
+        <button className="btn btn-o btn-sm" style={{whiteSpace:"nowrap"}}
+          onClick={e=>{
+            const inp=e.currentTarget.previousSibling;
+            if(inp.value.startsWith("http")){onChange([...images,inp.value.trim()]);inp.value="";}
+          }}>+ URL</button>
       </div>
 
       {images.length > 0 && (
         <div className="img-gallery">
-          {images.map((src, i) => (
-            <div key={i} className={`img-item${i === 0 ? " primary" : ""}`}>
-              <img src={src} alt="" />
-              {i === 0 && <div className="img-primary-badge">Hauptbild</div>}
+          {images.map((src,i) => (
+            <div key={i} className={`img-item${i===0?" primary":""}`}>
+              <img src={src} alt="" onError={e=>e.target.style.opacity=".3"}/>
+              {i===0 && <div className="img-primary-badge">Hauptbild</div>}
               <div className="img-item-actions">
-                {i !== 0 && (
-                  <button className="btn btn-sm btn-p" style={{padding:".2rem .45rem",fontSize:".65rem"}} onClick={() => setPrimary(i)}>
-                    <I d={ICONS.star} size={11} /> Haupt
+                {i!==0 && (
+                  <button className="btn btn-sm btn-p" style={{padding:".2rem .45rem",fontSize:".65rem"}} onClick={()=>setPrimary(i)}>
+                    ★ Haupt
                   </button>
                 )}
-                <button className="btn btn-sm btn-d" style={{padding:".2rem .45rem",fontSize:".65rem"}} onClick={() => remove(i)}>
-                  <I d={ICONS.trash} size={11} />
+                <button className="btn btn-sm btn-d" style={{padding:".2rem .45rem",fontSize:".65rem"}} onClick={()=>remove(i)}>
+                  ✕
                 </button>
               </div>
             </div>
           ))}
-        </div>
-      )}
-      {images.length > 0 && (
-        <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".5rem"}}>
-          {images.length} Bild{images.length!==1?"er":""} · Erstes Bild = Hauptbild im Shop
         </div>
       )}
     </div>
