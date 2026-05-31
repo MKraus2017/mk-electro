@@ -1542,6 +1542,10 @@ export default function App() {
   const [productModal, setProductModal] = useState(null);
   const [orderModal, setOrderModal] = useState(null);
   const [invoiceModal, setInvoiceModal] = useState(null);
+  const [beAuth, setBeAuth] = useState(false);
+  const [bePassword, setBePassword] = useState("");
+  const [beAuthError, setBeAuthError] = useState(false);
+  const BE_PASSWORD = "MKE2026!"; // ← Passwort hier ändern
 
   useEffect(() => {
     (async () => {
@@ -1589,6 +1593,16 @@ export default function App() {
   const deleteProduct = (id) => setProducts(ps=>ps.filter(p=>p.id!==id));
   const updateOrderStatus = (id,status) => setOrders(os=>os.map(o=>o.id===id?{...o,status}:o));
 
+  const handleBeLogin = () => {
+    if (bePassword === BE_PASSWORD) {
+      setBeAuth(true); setBeAuthError(false); setBePassword("");
+      setView("backend");
+    } else {
+      setBeAuthError(true); setBePassword("");
+    }
+  };
+  const handleBeLogout = () => { setBeAuth(false); setView("shop"); };
+
   if(!loaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--mu)",fontFamily:"Barlow,sans-serif"}}>Lädt…</div>;
 
   const newOrderCount = orders.filter(o=>o.status==="Neu").length;
@@ -1598,14 +1612,21 @@ export default function App() {
       <style>{CSS}</style>
       <div className="app">
         <nav className="nav">
-          <span className="logo" style={{cursor:"pointer"}} onClick={()=>setView("shop")}>MK<em>·</em>ELECTRO <small>mk-electro.com</small></span>
+          <span className="logo" style={{cursor:"pointer"}} onClick={()=>setView("shop")} onDoubleClick={()=>setView("backend")}>MK<em>·</em>ELECTRO <small>mk-electro.com</small></span>
           <div className="nav-links">
             <button className={`nb${view==="shop"?" on":""}`} onClick={()=>setView("shop")}><I d={ICONS.home} size={15}/> Shop</button>
             <button className={`nb${view==="contact"?" on":""}`} onClick={()=>setView("contact")}><I d={ICONS.mail} size={15}/> Kontakt</button>
-            <button className={`nb${view==="backend"?" on":""}`} onClick={()=>setView("backend")} style={{position:"relative"}}>
-              <I d={ICONS.shield} size={15}/> Backend
-              {newOrderCount>0 && <span className="badge" style={{position:"absolute",top:".1rem",right:".1rem",fontSize:".55rem",padding:".05rem .28rem"}}>{newOrderCount}</span>}
-            </button>
+            {beAuth && (
+              <button className={`nb${view==="backend"?" on":""}`} onClick={()=>setView("backend")} style={{position:"relative"}}>
+                <I d={ICONS.shield} size={15}/> Backend
+                {newOrderCount>0 && <span className="badge" style={{position:"absolute",top:".1rem",right:".1rem",fontSize:".55rem",padding:".05rem .28rem"}}>{newOrderCount}</span>}
+              </button>
+            )}
+            {beAuth && (
+              <button className="nb" onClick={handleBeLogout} style={{color:"var(--err)"}}>
+                <I d={ICONS.x} size={15}/> Logout
+              </button>
+            )}
           </div>
           {(view==="shop"||view==="contact"||view==="impressum"||view==="agb"||view==="datenschutz") && (
             <button className="cart-btn" onClick={()=>setCartOpen(true)}>
@@ -1625,7 +1646,39 @@ export default function App() {
         {view==="impressum"  && <ImpressumPage  />}
         {view==="agb"        && <AGBPage        setView={setView}/>}
         {view==="datenschutz"&& <DatenschutzPage/>}
-        {view==="backend" && (
+        {view==="backend" && !beAuth && (
+          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",padding:"2rem"}}>
+            <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"16px",padding:"2.5rem",width:"min(400px,100%)",textAlign:"center"}}>
+              <div style={{width:"56px",height:"56px",background:"rgba(232,160,32,.12)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 1.5rem",color:"var(--acc)"}}>
+                <I d={ICONS.shield} size={26}/>
+              </div>
+              <h2 style={{fontFamily:"Barlow Condensed",fontWeight:900,fontSize:"1.7rem",marginBottom:".5rem"}}>Backend Login</h2>
+              <p style={{color:"var(--mu)",fontSize:".85rem",marginBottom:"1.8rem"}}>Geschützter Bereich — nur für Administratoren</p>
+              <input
+                className="fi"
+                type="password"
+                placeholder="Passwort eingeben"
+                value={bePassword}
+                onChange={e=>{setBePassword(e.target.value);setBeAuthError(false);}}
+                onKeyDown={e=>e.key==="Enter"&&handleBeLogin()}
+                style={{marginBottom:beAuthError?".5rem":"1rem",borderColor:beAuthError?"var(--err)":"",textAlign:"center",fontSize:"1rem",letterSpacing:"2px"}}
+                autoFocus
+              />
+              {beAuthError && (
+                <div style={{color:"var(--err)",fontSize:".8rem",marginBottom:"1rem",display:"flex",alignItems:"center",justifyContent:"center",gap:".4rem"}}>
+                  <I d={ICONS.x} size={14}/> Falsches Passwort
+                </div>
+              )}
+              <button className="btn btn-p" style={{width:"100%",justifyContent:"center",fontSize:"1rem"}} onClick={handleBeLogin}>
+                <I d={ICONS.shield} size={16}/> Einloggen
+              </button>
+              <button className="nb" style={{marginTop:"1rem",width:"100%",justifyContent:"center",fontSize:".83rem"}} onClick={()=>setView("shop")}>
+                Zurück zum Shop
+              </button>
+            </div>
+          </div>
+        )}
+        {view==="backend" && beAuth && (
           <BackendView
             products={products} orders={orders} beSection={beSection} setBeSection={setBeSection}
             productModal={productModal} setProductModal={setProductModal}
