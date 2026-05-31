@@ -520,6 +520,15 @@ select.fi{appearance:auto}
 .auth-err{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:.65rem .9rem;font-size:.8rem;color:var(--err);margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem}
 .auth-ok{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);border-radius:8px;padding:.65rem .9rem;font-size:.8rem;color:var(--ok);margin-bottom:.8rem;display:flex;align-items:center;gap:.5rem}
 
+/* CHECKOUT DELIVERY ADDRESS */
+.delivery-toggle{display:flex;align-items:center;gap:.7rem;padding:.65rem .85rem;background:var(--sf2);border:1px solid var(--br);border-radius:8px;cursor:pointer;margin-bottom:.75rem;transition:border-color .18s;user-select:none}
+.delivery-toggle:hover{border-color:var(--acc)}
+.delivery-toggle-box{width:20px;height:20px;border-radius:5px;border:2px solid var(--br);display:flex;align-items:center;justify-content:center;transition:all .18s;flex-shrink:0;background:var(--sf)}
+.delivery-toggle-box.on{background:var(--acc);border-color:var(--acc)}
+.delivery-toggle-txt{font-size:.84rem;font-weight:600}
+.delivery-toggle-sub{font-size:.72rem;color:var(--mu);font-weight:400;margin-top:.05rem}
+.autofill-bar{background:rgba(232,160,32,.08);border:1px solid rgba(232,160,32,.2);border-radius:8px;padding:.55rem .85rem;font-size:.78rem;color:var(--acc);display:flex;align-items:center;gap:.5rem;margin-bottom:.85rem}
+
 /* CUSTOMER ACCOUNT PAGE */
 .acc-wrap{max-width:860px;margin:0 auto;padding:2rem 1.8rem}
 .acc-header{display:flex;align-items:center;gap:1.2rem;margin-bottom:2rem;padding:1.5rem;background:var(--sf);border:1px solid var(--br);border-radius:12px;flex-wrap:wrap}
@@ -1345,7 +1354,305 @@ function PayPalButton({ amount, onSuccess, onError, disabled }) {
 }
 
 // ── CHECKOUT ──────────────────────────────────────────────────────────────────
-function Checkout({ cart, cartTotal, onClose, onOrder, setView }) {
+function Checkout({ cart, cartTotal, onClose, onOrder, custUser }) {
+  const meta = custUser?.user_metadata || {};
+
+  // Pre-fill from logged-in user
+  const [payment, setPayment] = useState("paypal");
+  const [billing, setBilling] = useState({
+    name:   meta.full_name  || "",
+    email:  custUser?.email || "",
+    phone:  meta.phone      || "",
+    street: meta.street     || "",
+    zip:    meta.zip        || "",
+    city:   meta.city       || "",
+  });
+  const [sameAsDelivery, setSameAsDelivery] = useState(true);
+  const [delivery, setDelivery] = useState({ name:"", street:"", zip:"", city:"" });
+  const [err, setErr] = useState({});
+  const [step, setStep] = useState("form");
+  const [consentDaten, setConsentDaten] = useState(false);
+  const [consentNewsletter, setConsentNewsletter] = useState(false);
+  const [consentErr, setConsentErr] = useState(false);
+  const [paypalError, setPaypalError] = useState(null);
+
+  const sb = (k,v) => setBilling(x=>({...x,[k]:v}));
+  const sd = (k,v) => setDelivery(x=>({...x,[k]:v}));
+
+  const validate = () => {
+    const e={};
+    if(!billing.name.trim())e.name=1;
+    if(!billing.email.includes("@"))e.email=1;
+    if(!billing.street.trim())e.street=1;
+    if(!billing.zip.trim())e.zip=1;
+    if(!billing.city.trim())e.city=1;
+    if(!sameAsDelivery){
+      if(!delivery.name.trim())e.dname=1;
+      if(!delivery.street.trim())e.dstreet=1;
+      if(!delivery.zip.trim())e.dzip=1;
+      if(!delivery.city.trim())e.dcity=1;
+    }
+    setErr(e); return !Object.keys(e).length;
+  };
+
+  // The address used for shipping
+  const shippingAddr = sameAsDelivery ? billing : {...delivery, email:billing.email, phone:billing.phone};
+
+  const handleToConfirm = () => { if (validate()) { setStep("confirm"); setConsentErr(false); } };
+  const handleConfirm = () => {
+    if (!consentDaten) { setConsentErr(true); return; }
+    if (payment === "vorkasse") {
+      onOrder({ payment:"vorkasse", customer: shippingAddr, billing, newsletter:consentNewsletter });
+    } else { setStep("payment"); }
+  };
+  const handlePayPalSuccess = (details) => {
+    setStep("processing");
+    onOrder({ payment:"paypal", customer: shippingAddr, billing, paypalOrderId:details.id, newsletter:consentNewsletter });
+  };
+
+  const steps = [{key:"form",label:"Daten"},{key:"confirm",label:"Prüfen"},{key:"payment",label:"Zahlung"}];
+  const stepIdx = steps.findIndex(s=>s.key===step);
+
+  return (
+    <>
+      <div className="ov" onClick={onClose}/>
+      <div className="chk-ov">
+        <div className="chk-box">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.2rem"}}>
+            <h2 style={{margin:0}}>Kasse</h2>
+            <div className="xbtn" onClick={onClose}><I d={ICONS.x} size={14}/></div>
+          </div>
+
+          {/* Step indicator */}
+          {step !== "processing" && (
+            <div className="chk-steps">
+              {steps.map((s,i) => (
+                <React.Fragment key={s.key}>
+                  <div className={`chk-step${i<stepIdx?" done":i===stepIdx?" active":""}`}>
+                    <div className="chk-step-num">{i<stepIdx?<I d={ICONS.check} size={11}/>:i+1}</div>
+                    {s.label}
+                  </div>
+                  {i<steps.length-1 && <div className="chk-step-line"/>}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+
+          {/* ── STEP 1: FORM ── */}
+          {step === "form" && (
+            <>
+              {/* Autofill hint */}
+              {custUser && (meta.street || meta.city) && (
+                <div className="autofill-bar">
+                  <I d={ICONS.user} size={14}/>
+                  Daten aus Ihrem Kundenkonto vorausgefüllt
+                </div>
+              )}
+
+              {/* RECHNUNGSADRESSE */}
+              <div className="sec-ttl">Rechnungsadresse</div>
+              <div className="fg"><label>Vor- & Nachname *</label>
+                <input className={`fi${err.name?" err":""}`} placeholder="Max Mustermann" value={billing.name} onChange={e=>sb("name",e.target.value)}/>
+              </div>
+              <div className="fr">
+                <div className="fg"><label>E-Mail *</label>
+                  <input className={`fi${err.email?" err":""}`} type="email" placeholder="max@beispiel.de" value={billing.email} onChange={e=>sb("email",e.target.value)}/>
+                </div>
+                <div className="fg"><label>Telefon (optional)</label>
+                  <input className="fi" type="tel" placeholder="+49 …" value={billing.phone} onChange={e=>sb("phone",e.target.value)}/>
+                </div>
+              </div>
+              <div className="fg"><label>Straße & Hausnummer *</label>
+                <input className={`fi${err.street?" err":""}`} placeholder="Musterstraße 12" value={billing.street} onChange={e=>sb("street",e.target.value)}/>
+              </div>
+              <div className="fr">
+                <div className="fg"><label>PLZ *</label>
+                  <input className={`fi${err.zip?" err":""}`} placeholder="12345" value={billing.zip} onChange={e=>sb("zip",e.target.value)}/>
+                </div>
+                <div className="fg"><label>Ort *</label>
+                  <input className={`fi${err.city?" err":""}`} placeholder="Ketsch" value={billing.city} onChange={e=>sb("city",e.target.value)}/>
+                </div>
+              </div>
+
+              {/* LIEFERADRESSE TOGGLE */}
+              <div className="delivery-toggle" onClick={()=>setSameAsDelivery(v=>!v)}>
+                <div className={`delivery-toggle-box${sameAsDelivery?" on":""}`}>
+                  {sameAsDelivery && <I d={ICONS.check} size={12} sw={3}/>}
+                </div>
+                <div>
+                  <div className="delivery-toggle-txt">Lieferadresse = Rechnungsadresse</div>
+                  <div className="delivery-toggle-sub">{sameAsDelivery ? "Lieferung an obige Adresse" : "Abweichende Lieferadresse angeben"}</div>
+                </div>
+              </div>
+
+              {/* ABWEICHENDE LIEFERADRESSE */}
+              {!sameAsDelivery && (
+                <div style={{background:"var(--sf2)",border:"1px solid var(--br)",borderRadius:"10px",padding:"1rem",marginBottom:".85rem"}}>
+                  <div style={{fontSize:".72rem",fontWeight:700,color:"var(--acc)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:".75rem",display:"flex",alignItems:"center",gap:".4rem"}}>
+                    <I d={ICONS.truck} size={13}/> Abweichende Lieferadresse
+                  </div>
+                  <div className="fg"><label>Name des Empfängers *</label>
+                    <input className={`fi${err.dname?" err":""}`} placeholder="Empfänger Name" value={delivery.name} onChange={e=>sd("name",e.target.value)}/>
+                  </div>
+                  <div className="fg"><label>Straße & Hausnummer *</label>
+                    <input className={`fi${err.dstreet?" err":""}`} placeholder="Lieferstraße 12" value={delivery.street} onChange={e=>sd("street",e.target.value)}/>
+                  </div>
+                  <div className="fr">
+                    <div className="fg"><label>PLZ *</label>
+                      <input className={`fi${err.dzip?" err":""}`} placeholder="12345" value={delivery.zip} onChange={e=>sd("zip",e.target.value)}/>
+                    </div>
+                    <div className="fg"><label>Ort *</label>
+                      <input className={`fi${err.dcity?" err":""}`} placeholder="Berlin" value={delivery.city} onChange={e=>sd("city",e.target.value)}/>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ZAHLUNGSART */}
+              <div className="sec-ttl">Zahlungsart</div>
+              <div className="pay-opts">
+                <div className={`popt${payment==="paypal"?" on":""}`} onClick={()=>setPayment("paypal")}>
+                  <div className="pp-logo">Pay<span>Pal</span></div>
+                  <div className="popt-lbl">PayPal</div>
+                  <div className="popt-sub">Schnell & sicher</div>
+                </div>
+                <div className={`popt${payment==="vorkasse"?" on":""}`} onClick={()=>setPayment("vorkasse")}>
+                  <div style={{fontSize:"1.1rem"}}>🏦</div>
+                  <div className="popt-lbl">Vorkasse</div>
+                  <div className="popt-sub">Banküberweisung</div>
+                </div>
+              </div>
+
+              <div className="chk-acts">
+                <button className="btn btn-o" onClick={onClose}>Abbrechen</button>
+                <button className="btn btn-p" onClick={handleToConfirm}>Weiter zur Übersicht →</button>
+              </div>
+            </>
+          )}
+
+          {/* ── STEP 2: CONFIRM ── */}
+          {step === "confirm" && (
+            <>
+              {/* Rechnungsadresse */}
+              <div className="conf-block">
+                <h4><I d={ICONS.user} size={14}/> Rechnungsadresse</h4>
+                <div className="conf-row"><span>Name</span><span>{billing.name}</span></div>
+                <div className="conf-row"><span>E-Mail</span><span>{billing.email}</span></div>
+                {billing.phone && <div className="conf-row"><span>Telefon</span><span>{billing.phone}</span></div>}
+                <div className="conf-row"><span>Adresse</span><span>{billing.street}, {billing.zip} {billing.city}</span></div>
+              </div>
+
+              {/* Lieferadresse */}
+              {!sameAsDelivery && (
+                <div className="conf-block">
+                  <h4><I d={ICONS.truck} size={14}/> Lieferadresse</h4>
+                  <div className="conf-row"><span>Empfänger</span><span>{delivery.name}</span></div>
+                  <div className="conf-row"><span>Adresse</span><span>{delivery.street}, {delivery.zip} {delivery.city}</span></div>
+                </div>
+              )}
+              {sameAsDelivery && (
+                <div style={{fontSize:".78rem",color:"var(--mu)",marginBottom:".75rem",display:"flex",alignItems:"center",gap:".4rem"}}>
+                  <I d={ICONS.check} size={13} style={{color:"var(--ok)"}}/> Lieferadresse = Rechnungsadresse
+                </div>
+              )}
+
+              {/* Zahlung */}
+              <div className="conf-block">
+                <h4><I d={ICONS.shield} size={14}/> Zahlungsart</h4>
+                <div className="conf-row">
+                  <span>Methode</span>
+                  <span style={{fontWeight:700,color:payment==="paypal"?"#009cde":"var(--acc)"}}>
+                    {payment==="paypal"?"💳 PayPal":"🏦 Vorkasse"}
+                  </span>
+                </div>
+                {payment==="vorkasse" && <div style={{marginTop:".75rem"}}><BankInfo/></div>}
+              </div>
+
+              {/* Bestellübersicht */}
+              <div className="conf-block">
+                <h4><I d={ICONS.box} size={14}/> Bestellübersicht</h4>
+                {cart.map(i=>(
+                  <div key={i.id} className="conf-row">
+                    <span>{i.name.split(" ").slice(0,4).join(" ")} × {i.qty}</span>
+                    <span>{fmt(i.price*i.qty)}</span>
+                  </div>
+                ))}
+                <div className="conf-total"><span>Gesamtbetrag</span><span>{fmt(cartTotal)}</span></div>
+                <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".35rem"}}>inkl. 19% MwSt. · Versand kostenlos</div>
+              </div>
+
+              {/* Einverständnisse */}
+              <div className="chk-consent">
+                <div className={`chk-consent-row required${consentDaten?" checked":""}${consentErr&&!consentDaten?" err-border":""}`}
+                  onClick={()=>{setConsentDaten(v=>!v);setConsentErr(false);}}>
+                  <div className={`chk-box-input${consentDaten?" checked":""}`}>
+                    {consentDaten && <I d={ICONS.check} size={11} sw={3}/>}
+                  </div>
+                  <div className="chk-consent-txt">
+                    <strong>Einverständnis Datenverarbeitung *</strong><br/>
+                    Ich stimme zu, dass meine Daten zur Bestellabwicklung gemäß der Datenschutzerklärung verarbeitet werden.
+                  </div>
+                </div>
+                {consentErr && !consentDaten && (
+                  <div style={{fontSize:".75rem",color:"var(--err)",marginBottom:".5rem",paddingLeft:".75rem",display:"flex",alignItems:"center",gap:".3rem"}}>
+                    <I d={ICONS.x} size={12}/> Bitte zustimmen um fortzufahren.
+                  </div>
+                )}
+                <div className={`chk-consent-row${consentNewsletter?" checked":""}`}
+                  onClick={()=>setConsentNewsletter(v=>!v)}>
+                  <div className={`chk-box-input${consentNewsletter?" checked-opt":""}`}>
+                    {consentNewsletter && <I d={ICONS.check} size={11} sw={3}/>}
+                  </div>
+                  <div className="chk-consent-txt">
+                    <strong>Newsletter</strong> <span style={{fontWeight:400,color:"var(--mu)"}}>(optional)</span><br/>
+                    Ja, ich möchte den MK-Electro Newsletter erhalten.
+                  </div>
+                </div>
+              </div>
+              <div style={{fontSize:".72rem",color:"var(--mu)",marginBottom:".5rem"}}>* Pflichtfeld</div>
+
+              <div className="chk-acts">
+                <button className="btn btn-o" onClick={()=>setStep("form")}>← Zurück</button>
+                <button className="btn btn-p" onClick={handleConfirm} style={{flex:1,justifyContent:"center"}}>
+                  {payment==="paypal"
+                    ? <><I d={ICONS.shield} size={15}/> Weiter zu PayPal →</>
+                    : <><I d={ICONS.check} size={15}/> Jetzt kostenpflichtig bestellen</>
+                  }
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── STEP 3: PAYPAL ── */}
+          {step === "payment" && (
+            <>
+              <div style={{textAlign:"center",marginBottom:"1rem"}}>
+                <div style={{fontSize:"1rem",fontWeight:700,marginBottom:".3rem"}}>PayPal Zahlung</div>
+                <div style={{fontSize:".83rem",color:"var(--mu)"}}>
+                  Betrag: <strong style={{color:"var(--acc)",fontSize:"1.1rem"}}>{fmt(cartTotal)}</strong>
+                </div>
+              </div>
+              <PayPalButton amount={cartTotal} onSuccess={handlePayPalSuccess}
+                onError={()=>setPaypalError("PayPal Zahlung fehlgeschlagen.")} disabled={false}/>
+              {paypalError && <div className="pay-error"><I d={ICONS.x} size={13}/> {paypalError}</div>}
+              <button className="btn btn-o btn-sm" style={{marginTop:".85rem",width:"100%",justifyContent:"center"}}
+                onClick={()=>setStep("confirm")}>← Zurück zur Übersicht</button>
+            </>
+          )}
+
+          {/* ── PROCESSING ── */}
+          {step === "processing" && (
+            <div className="pay-processing" style={{flexDirection:"column",gap:"1rem",padding:"2.5rem"}}>
+              <I d={ICONS.check} size={36}/>
+              <div style={{fontWeight:700,fontSize:"1.1rem"}}>Zahlung erfolgreich!</div>
+              <div style={{fontSize:".82rem",color:"var(--mu)"}}>Bestellung wird verarbeitet…</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
   const [payment, setPayment] = useState("paypal");
   const [c, setC] = useState({name:"",email:"",street:"",zip:"",city:""});
   const [err, setErr] = useState({});
@@ -2247,8 +2554,11 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
 
 // ── CUSTOMER AUTH PAGE ────────────────────────────────────────────────────────
 function CustomerAuthPage({ onLogin, setView }) {
-  const [tab, setTab] = useState("login"); // login | register
-  const [form, setForm] = useState({ name:"", email:"", password:"", password2:"" });
+  const [tab, setTab] = useState("login");
+  const [form, setForm] = useState({
+    name:"", email:"", phone:"", street:"", zip:"", city:"",
+    password:"", password2:"",
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -2274,13 +2584,23 @@ function CustomerAuthPage({ onLogin, setView }) {
   const handleRegister = async () => {
     if (!form.name.trim()) { setError("Bitte Ihren Namen eingeben."); return; }
     if (!form.email.includes("@")) { setError("Bitte eine gültige E-Mail eingeben."); return; }
+    if (!form.street.trim()) { setError("Bitte Ihre Straße eingeben."); return; }
+    if (!form.zip.trim() || !form.city.trim()) { setError("Bitte PLZ und Ort eingeben."); return; }
     if (form.password.length < 6) { setError("Passwort muss mindestens 6 Zeichen haben."); return; }
     if (form.password !== form.password2) { setError("Passwörter stimmen nicht überein."); return; }
     setLoading(true); setError("");
     try {
       const { data, error: err } = await supabase.auth.signUp({
         email: form.email, password: form.password,
-        options: { data: { full_name: form.name } },
+        options: {
+          data: {
+            full_name: form.name,
+            phone: form.phone,
+            street: form.street,
+            zip: form.zip,
+            city: form.city,
+          },
+        },
       });
       if (err) throw err;
       if (data.user && !data.session) {
@@ -2299,7 +2619,7 @@ function CustomerAuthPage({ onLogin, setView }) {
 
   return (
     <div className="auth-wrap">
-      <div className="auth-box">
+      <div className="auth-box" style={{maxWidth:"520px",width:"100%"}}>
         <div style={{textAlign:"center",marginBottom:"1.3rem"}}>
           <div style={{width:"48px",height:"48px",background:"rgba(232,160,32,.12)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto .8rem",color:"var(--acc)"}}>
             <I d={ICONS.user} size={22}/>
@@ -2316,30 +2636,68 @@ function CustomerAuthPage({ onLogin, setView }) {
         {error && <div className="auth-err"><I d={ICONS.x} size={14}/>{error}</div>}
         {success && <div className="auth-ok"><I d={ICONS.check} size={14}/>{success}</div>}
 
+        {/* REGISTER FORM */}
         {tab === "register" && (
-          <div className="fg">
-            <label>Vor- & Nachname</label>
-            <input className="fi" placeholder="Max Mustermann" value={form.name} onChange={e=>sf("name",e.target.value)}/>
-          </div>
+          <>
+            <div style={{fontSize:".72rem",color:"var(--mu)",textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:".6rem"}}>Persönliche Daten</div>
+            <div className="fg">
+              <label>Vor- & Nachname *</label>
+              <input className="fi" placeholder="Max Mustermann" value={form.name} onChange={e=>sf("name",e.target.value)}/>
+            </div>
+            <div className="fr">
+              <div className="fg">
+                <label>E-Mail-Adresse *</label>
+                <input className="fi" type="email" placeholder="max@beispiel.de" value={form.email} onChange={e=>sf("email",e.target.value)}/>
+              </div>
+              <div className="fg">
+                <label>Telefon (optional)</label>
+                <input className="fi" type="tel" placeholder="+49 6202 …" value={form.phone} onChange={e=>sf("phone",e.target.value)}/>
+              </div>
+            </div>
+
+            <div style={{fontSize:".72rem",color:"var(--mu)",textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:".6rem",marginTop:".8rem"}}>Adresse</div>
+            <div className="fg">
+              <label>Straße & Hausnummer *</label>
+              <input className="fi" placeholder="Musterstraße 12" value={form.street} onChange={e=>sf("street",e.target.value)}/>
+            </div>
+            <div className="fr">
+              <div className="fg">
+                <label>PLZ *</label>
+                <input className="fi" placeholder="68775" value={form.zip} onChange={e=>sf("zip",e.target.value)}/>
+              </div>
+              <div className="fg">
+                <label>Ort *</label>
+                <input className="fi" placeholder="Ketsch" value={form.city} onChange={e=>sf("city",e.target.value)}/>
+              </div>
+            </div>
+
+            <div style={{fontSize:".72rem",color:"var(--mu)",textTransform:"uppercase",letterSpacing:"1px",fontWeight:700,marginBottom:".6rem",marginTop:".8rem"}}>Zugangsdaten</div>
+            <div className="fg">
+              <label>Passwort * (min. 6 Zeichen)</label>
+              <input className="fi" type="password" placeholder="Passwort wählen" value={form.password} onChange={e=>sf("password",e.target.value)}/>
+            </div>
+            <div className="fg">
+              <label>Passwort bestätigen *</label>
+              <input className="fi" type="password" placeholder="Passwort wiederholen" value={form.password2}
+                onChange={e=>sf("password2",e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleRegister()}/>
+            </div>
+          </>
         )}
 
-        <div className="fg">
-          <label>E-Mail-Adresse</label>
-          <input className="fi" type="email" placeholder="max@beispiel.de" value={form.email} onChange={e=>sf("email",e.target.value)}
-            onKeyDown={e=>e.key==="Enter"&&tab==="login"&&handleLogin()}/>
-        </div>
-        <div className="fg">
-          <label>Passwort</label>
-          <input className="fi" type="password" placeholder={tab==="register"?"Mindestens 6 Zeichen":"Ihr Passwort"} value={form.password}
-            onChange={e=>sf("password",e.target.value)} onKeyDown={e=>e.key==="Enter"&&tab==="login"&&handleLogin()}/>
-        </div>
-
-        {tab === "register" && (
-          <div className="fg">
-            <label>Passwort bestätigen</label>
-            <input className="fi" type="password" placeholder="Passwort wiederholen" value={form.password2}
-              onChange={e=>sf("password2",e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleRegister()}/>
-          </div>
+        {/* LOGIN FORM */}
+        {tab === "login" && (
+          <>
+            <div className="fg">
+              <label>E-Mail-Adresse</label>
+              <input className="fi" type="email" placeholder="max@beispiel.de" value={form.email}
+                onChange={e=>sf("email",e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
+            </div>
+            <div className="fg">
+              <label>Passwort</label>
+              <input className="fi" type="password" placeholder="Ihr Passwort" value={form.password}
+                onChange={e=>sf("password",e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
+            </div>
+          </>
         )}
 
         <button className="btn btn-p" style={{width:"100%",justifyContent:"center",marginTop:".5rem",padding:".75rem",fontSize:"1rem"}}
@@ -3177,7 +3535,7 @@ export default function App() {
             </div>
           </>
         )}
-        {view!=="backend" && checkoutOpen && <Checkout cart={cart} cartTotal={cartTotal} onClose={()=>setCheckoutOpen(false)} onOrder={placeOrder}/>}
+        {view!=="backend" && checkoutOpen && <Checkout cart={cart} cartTotal={cartTotal} onClose={()=>setCheckoutOpen(false)} onOrder={placeOrder} custUser={custUser}/>}
         {view!=="backend" && orderSuccess && (
           <>
             <div className="ov" onClick={()=>setOrderSuccess(null)}/>
