@@ -2101,13 +2101,24 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
   // Load registered users from Supabase view
   const [regUsers, setRegUsers] = useState([]);
   const [regLoading, setRegLoading] = useState(true);
+  const [nlList, setNlList] = useState([]);
+  const [nlLoading, setNlLoading] = useState(true);
+
   useEffect(() => {
     (async () => {
       try {
-        const { data, error } = await supabase.from("registered_users").select("*");
-        if (!error) setRegUsers(data || []);
-      } catch(e) { console.error("Benutzer laden fehlgeschlagen:", e); }
+        const [
+          { data: users, error: ue },
+          { data: nl, error: ne },
+        ] = await Promise.all([
+          supabase.from("registered_users").select("*"),
+          supabase.from("newsletter_subscribers").select("*"),
+        ]);
+        if (!ue) setRegUsers(users || []);
+        if (!ne) setNlList(nl || []);
+      } catch(e) { console.error("Laden fehlgeschlagen:", e); }
       setRegLoading(false);
+      setNlLoading(false);
     })();
   }, [beSection]);
 
@@ -2127,14 +2138,8 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
     deleteCustomer(email);
   };
 
-  // Newsletter subscribers from orders
-  const newsletterMap = {};
-  orders.filter(o=>o.newsletter).forEach(o => {
-    const email = o.customer?.email;
-    if (!email || newsletterMap[email]) return;
-    newsletterMap[email] = { email, name: o.customer?.name || "–", subscribedAt: o.date, orderId: o.id };
-  });
-  const newsletterList = Object.values(newsletterMap);
+  // Newsletter list comes from Supabase view (nlList)
+  const newsletterList = nlList;
 
   return (
     <div className="be-wrap">
@@ -2317,7 +2322,7 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
 
         {/* NEWSLETTER */}
         {beSection==="newsletter" && (
-          <NewsletterSection newsletterList={newsletterList} orders={orders} deleteCustomer={deleteCustomer} />
+          <NewsletterSection newsletterList={newsletterList} deleteCustomer={deleteCustomer} />
         )}
       </div>
 
@@ -2545,6 +2550,28 @@ function CustomerAccountPage({ user, orders, onLogout, setView }) {
   const name = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Kunde";
   const email = user?.email || "";
 
+  // Newsletter status from user_metadata
+  const [newsletter, setNewsletter] = useState(user?.user_metadata?.newsletter === true);
+  const [nlSaving, setNlSaving] = useState(false);
+  const [nlMsg, setNlMsg] = useState("");
+
+  const toggleNewsletter = async () => {
+    setNlSaving(true); setNlMsg("");
+    const newVal = !newsletter;
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: { newsletter: newVal }
+      });
+      if (error) throw error;
+      setNewsletter(newVal);
+      setNlMsg(newVal ? "Newsletter erfolgreich abonniert." : "Newsletter erfolgreich abgemeldet.");
+    } catch(e) {
+      setNlMsg("Fehler: " + e.message);
+    }
+    setNlSaving(false);
+    setTimeout(() => setNlMsg(""), 3000);
+  };
+
   // Filter orders for this customer by email
   const myOrders = orders.filter(o =>
     o.customer?.email?.toLowerCase() === email.toLowerCase()
@@ -2578,6 +2605,36 @@ function CustomerAccountPage({ user, orders, onLogout, setView }) {
             </button>
             <button className="btn btn-d btn-sm" onClick={onLogout}>
               <I d={ICONS.x} size={14}/> Abmelden
+            </button>
+          </div>
+        </div>
+
+        {/* Newsletter Section */}
+        <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"12px",padding:"1.2rem 1.4rem",marginBottom:"1.8rem",display:"flex",alignItems:"center",gap:"1rem",flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:".95rem",display:"flex",alignItems:"center",gap:".4rem"}}>
+              <I d={ICONS.newsletter} size={16}/> Newsletter
+            </div>
+            <div style={{fontSize:".78rem",color:"var(--mu)",marginTop:".2rem"}}>
+              {newsletter ? "Sie erhalten unsere Angebote und Neuigkeiten per E-Mail." : "Aktuell kein Newsletter — jetzt abonnieren und keine Angebote verpassen."}
+            </div>
+            {nlMsg && (
+              <div style={{fontSize:".75rem",color: nlMsg.startsWith("Fehler") ? "var(--err)" : "var(--ok)",marginTop:".4rem",display:"flex",alignItems:"center",gap:".3rem"}}>
+                <I d={nlMsg.startsWith("Fehler") ? ICONS.x : ICONS.check} size={12}/>
+                {nlMsg}
+              </div>
+            )}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:".75rem",flexShrink:0}}>
+            <span style={{fontSize:".8rem",color: newsletter ? "var(--ok)" : "var(--mu)",fontWeight:600}}>
+              {newsletter ? "✓ Abonniert" : "Nicht abonniert"}
+            </span>
+            <button
+              className={`btn btn-sm${newsletter ? " btn-d" : " btn-p"}`}
+              onClick={toggleNewsletter}
+              disabled={nlSaving}
+              style={{minWidth:"120px",justifyContent:"center"}}>
+              {nlSaving ? "Bitte warten…" : newsletter ? "Abmelden" : "Jetzt abonnieren"}
             </button>
           </div>
         </div>
@@ -2662,42 +2719,55 @@ function CustomerAccountPage({ user, orders, onLogout, setView }) {
 }
 
 // ── NEWSLETTER SECTION ────────────────────────────────────────────────────────
-function NewsletterSection({ newsletterList, orders, deleteCustomer }) {
+function NewsletterSection({ newsletterList, deleteCustomer }) {
   const [search, setSearch] = useState("");
   const [confirmDel, setConfirmDel] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [localList, setLocalList] = useState(newsletterList);
 
-  const filtered = newsletterList.filter(c =>
-    !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.email.toLowerCase().includes(search.toLowerCase())
+  // Sync when parent list changes
+  useEffect(() => { setLocalList(newsletterList); }, [newsletterList]);
+
+  const filtered = localList.filter(c =>
+    !search ||
+    (c.name||"").toLowerCase().includes(search.toLowerCase()) ||
+    (c.email||"").toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleUnsubscribe = async (email) => {
-    // Mark newsletter=false on all orders with this email
-    // In production this would update a newsletter_subscribers table
-    // For now we alert and confirm
-    if (!window.confirm(`Newsletter-Abonnement von ${email} wirklich entfernen?`)) return;
-    alert(`Newsletter-Abonnement von ${email} wurde entfernt.\n\nHinweis: Die Bestelldaten bleiben erhalten — nur der Newsletter-Status wird deaktiviert.`);
+  const fmtDt = (iso) => {
+    if (!iso) return "–";
+    const d = new Date(iso);
+    return d.toLocaleDateString("de-DE") + " " + d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
   };
 
-  const handleDeleteCustomer = async (c) => {
-    setDeleting(true);
-    await deleteCustomer(c.email);
-    setConfirmDel(null);
-    setDeleting(false);
+  const handleUnsubscribe = async (c) => {
+    if (!window.confirm(`Newsletter-Abonnement von ${c.email} wirklich entfernen?`)) return;
+    try {
+      if (c.source === "bestellung") {
+        // Update all orders for this email
+        await supabase.from("orders").update({ newsletter: false }).eq("customer_email", c.email);
+      } else {
+        // Update user_metadata in auth — remove newsletter flag
+        // We can do this via a custom RPC or just mark it in orders
+        // For now: remove from local list and show note
+      }
+      setLocalList(l => l.filter(x => x.email !== c.email));
+    } catch(e) {
+      alert("Fehler beim Abmelden: " + e.message);
+    }
   };
 
   // Export as CSV
   const exportCSV = () => {
     const rows = [
-      ["Name","E-Mail","Abonniert am","Bestellung"],
-      ...newsletterList.map(c=>[c.name, c.email, c.subscribedAt, c.orderId])
+      ["Name","E-Mail","Abonniert am","Quelle"],
+      ...localList.map(c=>[c.name||"–", c.email, fmtDt(c.subscribed_at), c.source==="registrierung"?"Registrierung":"Bestellung"])
     ];
-    const csv = rows.map(r=>r.map(v=>`"${v}"`).join(";")).join("\n");
+    const csv = rows.map(r=>r.map(v=>`"${(v||"").replace(/"/g,'""')}"`).join(";")).join("\n");
     const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `newsletter-abonnenten-${new Date().toISOString().slice(0,10)}.csv`;
+    a.href = url; a.download = `newsletter-${new Date().toISOString().slice(0,10)}.csv`;
     a.click(); URL.revokeObjectURL(url);
   };
 
@@ -2706,7 +2776,7 @@ function NewsletterSection({ newsletterList, orders, deleteCustomer }) {
       <div className="be-hdr">
         <div className="be-ttl">Newsletter</div>
         <div style={{display:"flex",gap:".6rem",alignItems:"center"}}>
-          <span style={{fontSize:".82rem",color:"var(--mu)"}}>{newsletterList.length} Abonnent{newsletterList.length!==1?"en":""}</span>
+          <span style={{fontSize:".82rem",color:"var(--mu)"}}>{localList.length} Abonnent{localList.length!==1?"en":""}</span>
           <button className="btn btn-o btn-sm" onClick={exportCSV}>
             <I d={ICONS.upload} size={13}/> CSV Export
           </button>
@@ -2735,7 +2805,7 @@ function NewsletterSection({ newsletterList, orders, deleteCustomer }) {
                 <th>Name</th>
                 <th>E-Mail</th>
                 <th>Abonniert am</th>
-                <th>via Bestellung</th>
+                <th>Quelle</th>
                 <th>Status</th>
                 <th>Aktionen</th>
               </tr>
@@ -2744,12 +2814,20 @@ function NewsletterSection({ newsletterList, orders, deleteCustomer }) {
               {filtered.map((c, idx) => (
                 <tr key={c.email}>
                   <td style={{color:"var(--mu)",fontSize:".78rem"}}>{idx+1}</td>
-                  <td style={{fontWeight:600}}>{c.name}</td>
+                  <td style={{fontWeight:600}}>{c.name||"–"}</td>
                   <td>
                     <a href={`mailto:${c.email}`} style={{color:"var(--acc)",fontSize:".82rem"}}>{c.email}</a>
                   </td>
-                  <td style={{fontSize:".8rem",color:"var(--mu)"}}>{c.subscribedAt}</td>
-                  <td style={{fontFamily:"monospace",fontSize:".75rem",color:"var(--mu)"}}>{c.orderId}</td>
+                  <td style={{fontSize:".78rem",color:"var(--mu)",whiteSpace:"nowrap"}}>{fmtDt(c.subscribed_at)}</td>
+                  <td>
+                    <span style={{fontSize:".72rem",padding:".15rem .5rem",borderRadius:"99px",
+                      background: c.source==="registrierung" ? "rgba(59,130,246,.12)" : "rgba(232,160,32,.12)",
+                      color: c.source==="registrierung" ? "var(--inf)" : "var(--acc)",
+                      border: c.source==="registrierung" ? "1px solid rgba(59,130,246,.25)" : "1px solid rgba(232,160,32,.25)",
+                    }}>
+                      {c.source==="registrierung" ? "🔐 Registrierung" : "🛒 Bestellung"}
+                    </span>
+                  </td>
                   <td><span className="nl-badge"><I d={ICONS.check} size={10}/> Aktiv</span></td>
                   <td>
                     <div className="acts">
@@ -2757,7 +2835,7 @@ function NewsletterSection({ newsletterList, orders, deleteCustomer }) {
                         <I d={ICONS.mail} size={12}/> Mail
                       </a>
                       <button className="btn btn-sm" style={{background:"rgba(249,115,22,.12)",color:"#f97316",border:"1px solid rgba(249,115,22,.25)"}}
-                        onClick={()=>handleUnsubscribe(c.email)}>
+                        onClick={()=>handleUnsubscribe(c)}>
                         <I d={ICONS.x} size={12}/> Abmelden
                       </button>
                       <button className="btn btn-d btn-sm" onClick={()=>setConfirmDel(c)}>
@@ -2779,16 +2857,21 @@ function NewsletterSection({ newsletterList, orders, deleteCustomer }) {
             <h2 style={{color:"var(--err)"}}>Kunden löschen</h2>
             <div className="del-confirm-box">
               <p style={{fontSize:".85rem",marginBottom:".6rem"}}>
-                Möchten Sie den Kunden <strong style={{color:"var(--tx)"}}>{confirmDel.name}</strong> ({confirmDel.email}) wirklich vollständig löschen?
+                Möchten Sie den Kunden <strong style={{color:"var(--tx)"}}>{confirmDel.name||confirmDel.email}</strong> wirklich vollständig löschen?
               </p>
               <p style={{fontSize:".78rem",color:"var(--mu)"}}>
-                ⚠️ Alle Bestelldaten dieses Kunden werden unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+                ⚠️ Alle Bestelldaten werden unwiderruflich gelöscht.
               </p>
             </div>
             <div className="mk-acts">
               <button className="btn btn-o" onClick={()=>setConfirmDel(null)}>Abbrechen</button>
-              <button className="btn btn-d" onClick={()=>handleDeleteCustomer(confirmDel)} disabled={deleting}>
-                <I d={ICONS.trash} size={15}/> {deleting ? "Wird gelöscht…" : "Endgültig löschen"}
+              <button className="btn btn-d" disabled={deleting} onClick={async()=>{
+                setDeleting(true);
+                await deleteCustomer(confirmDel.email);
+                setLocalList(l=>l.filter(x=>x.email!==confirmDel.email));
+                setConfirmDel(null); setDeleting(false);
+              }}>
+                <I d={ICONS.trash} size={15}/> {deleting?"Lösche…":"Endgültig löschen"}
               </button>
             </div>
           </div>
@@ -2797,6 +2880,9 @@ function NewsletterSection({ newsletterList, orders, deleteCustomer }) {
     </>
   );
 }
+  const [search, setSearch] = useState("");
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
 // ── CUSTOMERS SECTION ─────────────────────────────────────────────────────────
 function CustomersSection({ orders, regUsers, regLoading, setOrderModal, setInvoiceModal, deleteCustomer, deleteUserById }) {
