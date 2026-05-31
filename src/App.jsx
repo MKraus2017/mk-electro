@@ -2366,7 +2366,7 @@ function ShopView({ products, categories, category, search, setCategory, setSear
 }
 
 // ── BACKEND VIEW ──────────────────────────────────────────────────────────────
-function BackendView({ products, orders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, updateOrderDetails, deleteCustomer }) {
+function BackendView({ products, orders, setOrders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, updateOrderDetails, deleteCustomer }) {
   const revenue = orders.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
   const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
 
@@ -4338,7 +4338,7 @@ export default function App() {
         )}
         {view==="backend" && beAuth && (
           <BackendView
-            products={products} orders={orders} beSection={beSection} setBeSection={setBeSection}
+            products={products} orders={orders} setOrders={setOrders} beSection={beSection} setBeSection={setBeSection}
             productModal={productModal} setProductModal={setProductModal}
             orderModal={orderModal} setOrderModal={setOrderModal}
             invoiceModal={invoiceModal} setInvoiceModal={setInvoiceModal}
