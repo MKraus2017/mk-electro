@@ -37,6 +37,9 @@ function rowToOrder(r) {
       street: r.customer_street, zip: r.customer_zip, city: r.customer_city },
     items: r.items||[], total: parseFloat(r.total)||0,
     newsletter: r.newsletter || false,
+    carrier: r.carrier || null,
+    tracking_number: r.tracking_number || null,
+    serial_numbers: r.serial_numbers || null,
   };
 }
 // Map app order → Supabase row shape
@@ -410,9 +413,12 @@ footer{background:var(--sf);border-top:1px solid var(--br)}
 .od-f label{font-size:.68rem;color:var(--mu);text-transform:uppercase;letter-spacing:.5px}
 .od-f p{font-size:.86rem;font-weight:500;margin-top:.1rem}
 .od-items{background:var(--sf2);border-radius:8px;padding:.85rem}
-.od-item{display:flex;justify-content:space-between;font-size:.83rem;padding:.28rem 0;border-bottom:1px solid var(--br)}
+.od-item{display:flex;justify-content:space-between;align-items:flex-start;font-size:.83rem;padding:.35rem 0;border-bottom:1px solid var(--br);gap:.5rem}
 .od-item:last-child{border:none}
 .od-total{display:flex;justify-content:space-between;font-family:'Barlow Condensed',sans-serif;font-size:1.18rem;font-weight:900;color:var(--acc);margin-top:.6rem;padding-top:.6rem;border-top:1px solid var(--br)}
+.od-serial{font-size:.72rem;color:var(--mu);margin-top:.18rem;font-family:monospace}
+.tracking-chip{display:inline-flex;align-items:center;gap:.35rem;background:rgba(59,130,246,.1);color:var(--inf);border:1px solid rgba(59,130,246,.2);border-radius:6px;padding:.25rem .6rem;font-size:.75rem;font-family:monospace;font-weight:600;margin-top:.4rem;cursor:pointer}
+.tracking-chip:hover{background:rgba(59,130,246,.2)}
 select.fi{appearance:auto}
 
 /* PAYPAL */
@@ -1009,54 +1015,176 @@ function InvoiceModal({ order, onClose }) {
 }
 
 // ── Order Detail Modal ────────────────────────────────────────────────────────
-function OrderModal({ order, onClose, onStatusChange, onOpenInvoice }) {
+function OrderModal({ order, onClose, onStatusChange, onSaveDetails, onOpenInvoice }) {
   const [status, setStatus] = useState(order.status);
-  const save = () => { onStatusChange(order.id, status); onClose(); };
+  const [carrier, setCarrier] = useState(order.carrier || "");
+  const [trackingNr, setTrackingNr] = useState(order.tracking_number || "");
+  const [serialNums, setSerialNums] = useState(
+    order.serial_numbers || (order.items||[]).map(i=>({id:i.id, name:i.name, serial:""}))
+  );
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const CARRIERS = ["Hermes","DHL","DHL Express","UPS","GLS","Sonstiges"];
   const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+
+  const setSerial = (id, val) => setSerialNums(s => s.map(x => x.id===id ? {...x,serial:val} : x));
+
+  const save = async () => {
+    setSaving(true);
+    const fields = {
+      status,
+      carrier: carrier || null,
+      tracking_number: trackingNr || null,
+      serial_numbers: serialNums,
+    };
+    await onSaveDetails(order.id, fields);
+    setSaving(false); setSaved(true);
+    setTimeout(() => { setSaved(false); onClose(); }, 800);
+  };
+
+  const copyTracking = () => {
+    navigator.clipboard.writeText(trackingNr);
+  };
+
+  // Build tracking URL
+  const trackingUrl = () => {
+    if (!trackingNr) return null;
+    if (carrier === "DHL" || carrier === "DHL Express")
+      return `https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?idc=${trackingNr}`;
+    if (carrier === "Hermes")
+      return `https://www.myhermes.de/empfangen/sendungsverfolgung/sendungsinformation/#${trackingNr}`;
+    if (carrier === "UPS")
+      return `https://www.ups.com/track?tracknum=${trackingNr}`;
+    if (carrier === "GLS")
+      return `https://gls-group.com/track/${trackingNr}`;
+    return null;
+  };
+
   return (
     <div className="mkov" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="mkbox" style={{maxWidth:"min(680px,100%)"}}>
+      <div className="mkbox" style={{maxWidth:"min(740px,100%)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"1.3rem"}}>
           <h2 style={{margin:0}}>Bestellung {order.id}</h2>
-          <span className={`spill ${statusClass[order.status]||"s-new"}`}>{order.status}</span>
+          <div style={{display:"flex",gap:".5rem",alignItems:"center"}}>
+            <span className={`spill ${statusClass[order.status]||"s-new"}`}>{order.status}</span>
+            <button className="xbtn" onClick={onClose}><I d={ICONS.x} size={14}/></button>
+          </div>
         </div>
 
+        {/* Kundendaten */}
         <div className="od-sec">
           <h3>Kundendaten</h3>
           <div className="od-grid">
-            {[["Name",order.customer?.name],["E-Mail",order.customer?.email],["Adresse",`${order.customer?.street}, ${order.customer?.zip} ${order.customer?.city}`],["Zahlung",order.payment==="paypal"?"PayPal":"Vorkasse"],["Datum",order.date]].map(([l,v])=>(
+            {[
+              ["Name", order.customer?.name],
+              ["E-Mail", order.customer?.email],
+              ["Adresse", `${order.customer?.street||""}, ${order.customer?.zip||""} ${order.customer?.city||""}`],
+              ["Zahlung", order.payment==="paypal"?"PayPal":"Vorkasse"],
+              ["Datum", order.date],
+            ].map(([l,v])=>(
               <div key={l} className="od-f"><label>{l}</label><p>{v||"—"}</p></div>
             ))}
           </div>
         </div>
 
+        {/* Bestellte Artikel + Seriennummern */}
         <div className="od-sec">
-          <h3>Bestellte Artikel</h3>
+          <h3>Bestellte Artikel & Seriennummern</h3>
           <div className="od-items">
-            {(order.items||[]).map(i=>(
-              <div key={i.id} className="od-item">
-                <span>{i.name} ×{i.qty}</span>
-                <span style={{color:"var(--acc)",fontWeight:700}}>{fmt(i.price*i.qty)}</span>
-              </div>
-            ))}
+            {(order.items||[]).map(i => {
+              const sn = serialNums.find(x=>x.id===i.id);
+              return (
+                <div key={i.id} className="od-item" style={{flexDirection:"column",alignItems:"stretch"}}>
+                  <div style={{display:"flex",justifyContent:"space-between"}}>
+                    <span style={{fontWeight:500}}>{i.name} <span style={{color:"var(--mu)"}}>×{i.qty}</span></span>
+                    <span style={{color:"var(--acc)",fontWeight:700,flexShrink:0,marginLeft:".5rem"}}>{fmt(i.price*i.qty)}</span>
+                  </div>
+                  <div style={{marginTop:".35rem"}}>
+                    <input
+                      className="fi"
+                      style={{fontSize:".78rem",padding:".3rem .6rem",fontFamily:"monospace"}}
+                      placeholder={`Seriennummer (optional) — z.B. SN-${i.id?.toString().slice(-4)||"0000"}`}
+                      value={sn?.serial||""}
+                      onChange={e=>setSerial(i.id, e.target.value)}
+                    />
+                  </div>
+                </div>
+              );
+            })}
             <div className="od-total"><span>Gesamtbetrag</span><span>{fmt(order.total)}</span></div>
           </div>
         </div>
 
+        {/* Versand */}
         <div className="od-sec">
-          <h3>Status ändern</h3>
+          <h3><I d={ICONS.truck} size={14}/> Versandinformationen</h3>
+          <div className="fr" style={{gap:".75rem",flexWrap:"wrap"}}>
+            <div className="fg" style={{minWidth:"180px"}}>
+              <label style={{fontSize:".72rem",color:"var(--mu)",textTransform:"uppercase",letterSpacing:".5px",display:"block",marginBottom:".4rem"}}>Versanddienstleister</label>
+              <select className="fi" value={carrier} onChange={e=>setCarrier(e.target.value)}>
+                <option value="">— Kein Versand —</option>
+                {CARRIERS.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+              {carrier === "Sonstiges" && (
+                <input className="fi" style={{marginTop:".4rem"}} placeholder="Dienstleister eingeben…"
+                  value={carrier==="Sonstiges"?"":carrier}
+                  onChange={e=>setCarrier(e.target.value)}/>
+              )}
+            </div>
+            <div className="fg" style={{flex:2,minWidth:"220px"}}>
+              <label style={{fontSize:".72rem",color:"var(--mu)",textTransform:"uppercase",letterSpacing:".5px",display:"block",marginBottom:".4rem"}}>Trackingnummer</label>
+              <div style={{display:"flex",gap:".4rem"}}>
+                <input className="fi" style={{fontFamily:"monospace"}}
+                  placeholder="z.B. 1Z999AA10123456784"
+                  value={trackingNr}
+                  onChange={e=>setTrackingNr(e.target.value)}/>
+                {trackingNr && (
+                  <button className="btn btn-o btn-sm" onClick={copyTracking} title="Kopieren">
+                    <I d={ICONS.link} size={13}/>
+                  </button>
+                )}
+              </div>
+              {/* Tracking Link */}
+              {trackingNr && trackingUrl() && (
+                <a href={trackingUrl()} target="_blank" rel="noreferrer"
+                  style={{fontSize:".73rem",color:"var(--inf)",marginTop:".35rem",display:"flex",alignItems:"center",gap:".25rem",textDecoration:"none"}}>
+                  <I d={ICONS.link} size={11}/> Sendung verfolgen ({carrier})
+                </a>
+              )}
+              {trackingNr && !trackingUrl() && (
+                <div style={{fontSize:".73rem",color:"var(--mu)",marginTop:".35rem"}}>
+                  Trackingnummer gespeichert
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Status */}
+        <div className="od-sec">
+          <h3>Bestellstatus</h3>
           <select className="fi" value={status} onChange={e=>setStatus(e.target.value)}>
             {["Neu","Bezahlt","Versendet","Storniert"].map(s=><option key={s} value={s}>{s}</option>)}
           </select>
+          {status==="Versendet" && !carrier && (
+            <div style={{fontSize:".75rem",color:"var(--acc)",marginTop:".4rem",display:"flex",alignItems:"center",gap:".3rem"}}>
+              <I d={ICONS.truck} size={12}/> Tipp: Versanddienstleister & Trackingnummer oben eintragen
+            </div>
+          )}
         </div>
 
         <div className="mk-acts" style={{flexWrap:"wrap"}}>
           <button className="btn btn-o" onClick={onClose}>Schließen</button>
           <button className="btn btn-i" onClick={onOpenInvoice}>
-            <I d={ICONS.invoice} size={15}/> Rechnung anzeigen & senden
+            <I d={ICONS.invoice} size={15}/> Rechnung
           </button>
-          <button className="btn btn-ok" onClick={save}>
-            <I d={ICONS.check} size={15}/> Status speichern
+          <button className="btn btn-ok" onClick={save} disabled={saving}>
+            {saved
+              ? <><I d={ICONS.check} size={15}/> Gespeichert!</>
+              : saving ? "Speichert…"
+              : <><I d={ICONS.check} size={15}/> Speichern</>
+            }
           </button>
         </div>
       </div>
@@ -2108,7 +2236,7 @@ function ShopView({ products, categories, category, search, setCategory, setSear
 }
 
 // ── BACKEND VIEW ──────────────────────────────────────────────────────────────
-function BackendView({ products, orders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, deleteCustomer }) {
+function BackendView({ products, orders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, updateOrderDetails, deleteCustomer }) {
   const revenue = orders.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
   const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
 
@@ -2302,7 +2430,11 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
                       <td style={{color:"var(--mu)",fontSize:".78rem"}}>{o.customer?.email}</td>
                       <td style={{textTransform:"capitalize",color:"var(--mu)",fontSize:".8rem"}}>{o.payment}</td>
                       <td style={{fontWeight:700}}>{fmt(o.total)}</td>
-                      <td><span className={`spill ${statusClass[o.status]||"s-new"}`}>{o.status}</span></td>
+                      <td>
+                        <span className={`spill ${statusClass[o.status]||"s-new"}`}>{o.status}</span>
+                        {o.carrier && <div style={{fontSize:".7rem",color:"var(--mu)",marginTop:".15rem"}}><I d={ICONS.truck} size={10}/> {o.carrier}</div>}
+                        {o.tracking_number && <div style={{fontSize:".68rem",fontFamily:"monospace",color:"var(--inf)",marginTop:".1rem"}}>{o.tracking_number}</div>}
+                      </td>
                       <td>
                         <div className="acts">
                           <button className="btn btn-o btn-sm" onClick={()=>setOrderModal(o)}>
@@ -2342,7 +2474,7 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
 
       {/* MODALS */}
       {productModal!==null && <ProductModal product={productModal} onSave={saveProduct} onClose={()=>setProductModal(null)}/>}
-      {orderModal && <OrderModal order={orderModal} onClose={()=>setOrderModal(null)} onStatusChange={updateOrderStatus} onOpenInvoice={()=>{setInvoiceModal(orderModal);setOrderModal(null);}}/>}
+      {orderModal && <OrderModal order={orderModal} onClose={()=>setOrderModal(null)} onStatusChange={updateOrderStatus} onSaveDetails={updateOrderDetails} onOpenInvoice={()=>{setInvoiceModal(orderModal);setOrderModal(null);}}/>}
       {invoiceModal && <InvoiceModal order={invoiceModal} onClose={()=>setInvoiceModal(null)}/>}
     </div>
   );
@@ -3335,6 +3467,14 @@ export default function App() {
     setOrders(os => os.map(o => o.id === id ? { ...o, status } : o));
   };
 
+  const updateOrderDetails = async (id, fields) => {
+    // fields: { status, serial_numbers, carrier, tracking_number }
+    try {
+      await supabase.from("orders").update(fields).eq("id", id);
+    } catch(e) { console.error("Bestellung Update fehlgeschlagen:", e); }
+    setOrders(os => os.map(o => o.id === id ? { ...o, ...fields } : o));
+  };
+
   // Delete all orders for a customer by email (DSGVO compliant)
   const deleteCustomer = async (email) => {
     try {
@@ -3463,7 +3603,7 @@ export default function App() {
             orderModal={orderModal} setOrderModal={setOrderModal}
             invoiceModal={invoiceModal} setInvoiceModal={setInvoiceModal}
             saveProduct={saveProduct} deleteProduct={deleteProduct}
-            updateOrderStatus={updateOrderStatus} deleteCustomer={deleteCustomer}
+            updateOrderStatus={updateOrderStatus} updateOrderDetails={updateOrderDetails} deleteCustomer={deleteCustomer}
           />
         )}
 
