@@ -714,7 +714,7 @@ function ProductCard({ p, onAddToCart, onOpenDetail }) {
         <div className="pfoot">
           <div>
             <div className="pprice">{fmt(p.price)}</div>
-            <div style={{fontSize:".7rem",color:"var(--mu)"}}>inkl. MwSt. & Versand</div>
+            <div style={{fontSize:".7rem",color:"var(--mu)"}}>inkl. MwSt. · zzgl. Versand (ab 50 € kostenlos)</div>
           </div>
           <button className="btn btn-p btn-sm"
             onClick={e => { e.stopPropagation(); onAddToCart(p); }}
@@ -851,7 +851,7 @@ function ProductDetailModal({ p, onClose, onAddToCart }) {
           <div>
             <div className="pd-price-row">
               <div className="pd-price">{fmt(p.price)}</div>
-              <div className="pd-vat">inkl. 19% MwSt. & Versand</div>
+              <div className="pd-vat">inkl. 19% MwSt. · Versandkostenfrei ab 50 €</div>
             </div>
             <button className="btn btn-p" style={{width:"100%",justifyContent:"center",fontSize:"1rem",marginTop:".85rem",padding:".75rem"}}
               onClick={() => { onAddToCart(p); onClose(); }}
@@ -867,7 +867,7 @@ function ProductDetailModal({ p, onClose, onAddToCart }) {
 
           {/* Trust */}
           <div style={{display:"flex",gap:".75rem",flexWrap:"wrap",marginTop:"auto"}}>
-            {[["Originalware & Garantie",ICONS.check],["Sichere Zahlung",ICONS.shield],["Kostenloser Versand",ICONS.truck]].map(([l,d])=>(
+            {[["Originalware & Garantie",ICONS.check],["Sichere Zahlung",ICONS.shield],["Versandkostenfrei ab 50 €",ICONS.truck]].map(([l,d])=>(
               <div key={l} style={{display:"flex",alignItems:"center",gap:".3rem",fontSize:".72rem",color:"var(--mu)"}}>
                 <I d={d} size={13} style={{color:"var(--acc)"}}/>{l}
               </div>
@@ -1354,7 +1354,7 @@ function PayPalButton({ amount, onSuccess, onError, disabled }) {
 }
 
 // ── CHECKOUT ──────────────────────────────────────────────────────────────────
-function Checkout({ cart, cartTotal, onClose, onOrder, custUser }) {
+function Checkout({ cart, cartTotal, cartSubtotal, shippingCost, onClose, onOrder, custUser }) {
   const meta = custUser?.user_metadata || {};
 
   // Pre-fill from logged-in user
@@ -1577,8 +1577,22 @@ function Checkout({ cart, cartTotal, onClose, onOrder, custUser }) {
                     <span>{fmt(i.price*i.qty)}</span>
                   </div>
                 ))}
+                <div className="conf-row" style={{marginTop:".4rem",paddingTop:".4rem",borderTop:"1px solid var(--br)"}}>
+                  <span>Zwischensumme</span>
+                  <span>{fmt(cartSubtotal)}</span>
+                </div>
+                <div className="conf-row">
+                  <span style={{display:"flex",alignItems:"center",gap:".3rem"}}>
+                    <I d={ICONS.truck} size={12}/> Versandkosten
+                  </span>
+                  <span style={{color: shippingCost===0 ? "var(--ok)" : "var(--tx)", fontWeight:600}}>
+                    {shippingCost===0 ? "Kostenlos ✓" : fmt(shippingCost)}
+                  </span>
+                </div>
                 <div className="conf-total"><span>Gesamtbetrag</span><span>{fmt(cartTotal)}</span></div>
-                <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".35rem"}}>inkl. 19% MwSt. · Versand kostenlos</div>
+                <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".35rem"}}>
+                  inkl. 19% MwSt. {shippingCost===0 ? "· Versand kostenlos ab 50 €" : "· Versandpauschale 6,00 €"}
+                </div>
               </div>
 
               {/* Einverständnisse */}
@@ -3261,7 +3275,11 @@ export default function App() {
   };
   const updateQty = (id,delta) => setCart(c=>c.map(i=>i.id===id?{...i,qty:Math.max(1,i.qty+delta)}:i).filter(i=>i.qty>0));
   const removeFromCart = (id) => setCart(c=>c.filter(i=>i.id!==id));
-  const cartTotal = cart.reduce((s,i)=>s+i.price*i.qty, 0);
+  const cartSubtotal = cart.reduce((s,i)=>s+i.price*i.qty, 0);
+  const SHIPPING_FREE_THRESHOLD = 50;
+  const SHIPPING_COST = 6;
+  const shippingCost = cartSubtotal >= SHIPPING_FREE_THRESHOLD ? 0 : (cart.length > 0 ? SHIPPING_COST : 0);
+  const cartTotal = cartSubtotal + shippingCost;
   const cartCount = cart.reduce((s,i)=>s+i.qty, 0);
 
   const placeOrder = async (data) => {
@@ -3484,6 +3502,22 @@ export default function App() {
               </div>
               {cart.length>0 && (
                 <div className="cart-ft">
+                  {/* Shipping info */}
+                  {shippingCost > 0 ? (
+                    <div style={{fontSize:".78rem",color:"var(--mu)",marginBottom:".5rem",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span>Versandkosten</span>
+                      <span style={{color:"var(--tx)",fontWeight:600}}>{fmt(shippingCost)}</span>
+                    </div>
+                  ) : (
+                    <div style={{fontSize:".75rem",color:"var(--ok)",marginBottom:".5rem",display:"flex",alignItems:"center",gap:".3rem"}}>
+                      <I d={ICONS.check} size={12}/> Kostenloser Versand
+                    </div>
+                  )}
+                  {shippingCost > 0 && (
+                    <div style={{fontSize:".72rem",color:"var(--mu)",marginBottom:".6rem",background:"rgba(232,160,32,.08)",border:"1px solid rgba(232,160,32,.15)",borderRadius:"6px",padding:".35rem .6rem"}}>
+                      Noch <strong style={{color:"var(--acc)"}}>{fmt(SHIPPING_FREE_THRESHOLD - cartSubtotal)}</strong> bis zum kostenlosen Versand
+                    </div>
+                  )}
                   <div className="ctotal"><span>Gesamt inkl. MwSt.</span><span>{fmt(cartTotal)}</span></div>
                   <button className="btn btn-p" style={{width:"100%"}} onClick={()=>{setCartOpen(false);setCheckoutOpen(true);}}>Zur Kasse →</button>
                 </div>
@@ -3491,7 +3525,7 @@ export default function App() {
             </div>
           </>
         )}
-        {view!=="backend" && checkoutOpen && <Checkout cart={cart} cartTotal={cartTotal} onClose={()=>setCheckoutOpen(false)} onOrder={placeOrder} custUser={custUser}/>}
+        {view!=="backend" && checkoutOpen && <Checkout cart={cart} cartTotal={cartTotal} cartSubtotal={cartSubtotal} shippingCost={shippingCost} onClose={()=>setCheckoutOpen(false)} onOrder={placeOrder} custUser={custUser}/>}
         {view!=="backend" && orderSuccess && (
           <>
             <div className="ov" onClick={()=>setOrderSuccess(null)}/>
