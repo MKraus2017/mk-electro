@@ -36,6 +36,33 @@ const genId = () => "MKE-" + Date.now().toString(36).toUpperCase();
 const fmt = (n) => Number(n).toFixed(2).replace(".", ",") + " €";
 const fmtDate = () => new Date().toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit", year:"numeric" });
 
+// Bestellbenachrichtigung per Formspree an shop@mk-electro.com
+async function sendOrderNotification(order) {
+  try {
+    const itemsList = (order.items || [])
+      .map(i => `• ${i.name} × ${i.qty} = ${fmt(i.price * i.qty)}`)
+      .join("\n");
+    await fetch("https://formspree.io/f/mzdwqkoa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        _subject: `🛒 Neue Bestellung ${order.id} — ${fmt(order.total)}`,
+        bestellung_nr: order.id,
+        datum: order.date,
+        kunde_name: order.customer?.name,
+        kunde_email: order.customer?.email,
+        kunde_adresse: `${order.customer?.street}, ${order.customer?.zip} ${order.customer?.city}`,
+        zahlungsart: order.payment === "paypal" ? "PayPal" : "Vorkasse",
+        gesamtbetrag: fmt(order.total),
+        artikel: itemsList,
+        message: `Neue Bestellung eingegangen!\n\nBestellung: ${order.id}\nKunde: ${order.customer?.name}\nE-Mail: ${order.customer?.email}\nAdresse: ${order.customer?.street}, ${order.customer?.zip} ${order.customer?.city}\nZahlung: ${order.payment === "paypal" ? "PayPal" : "Vorkasse"}\n\nArtikel:\n${itemsList}\n\nGesamt: ${fmt(order.total)}`,
+      }),
+    });
+  } catch(e) {
+    console.error("Bestellbenachrichtigung fehlgeschlagen:", e);
+  }
+}
+
 // Echte Nettomarge nach eBay (10.75% + 0.35€) und Versand
 function calcMargin(price, ek, shipping) {
   const p = parseFloat(price)||0, e = parseFloat(ek)||0, s = parseFloat(shipping)||0;
@@ -567,14 +594,14 @@ function generateInvoiceHTML(order, invoiceNr) {
     </tr>
   `).join("");
   const paymentNote = order.payment === "vorkasse"
-    ? `<div class="inv-bank"><strong>Bitte überweisen Sie auf:</strong><br>Kontoinhaber: MK-Electro GmbH · IBAN: DE89 3704 0044 0532 0130 00 · BIC: COBADEFFXXX<br>Verwendungszweck: ${order.id}</div>`
+    ? `<div class="inv-bank"><strong>Bitte überweisen Sie auf:</strong><br>Kontoinhaber: MK-Electro · IBAN: DE89 3704 0044 0532 0130 00 · BIC: COBADEFFXXX<br>Verwendungszweck: ${order.id}</div>`
     : `<p style="font-size:.75rem;color:#555">Zahlung per PayPal – Betrag bereits autorisiert.</p>`;
   return `
     <div class="inv-preview" id="invoice-${order.id}">
       <div class="inv-hdr">
         <div class="inv-company">
           <h2>MK·ELECTRO</h2>
-          <p>mk-electro.com · Musterstraße 1 · 10115 Berlin<br>Tel: +49 30 12345678 · info@mk-electro.com<br>USt-ID: DE123456789 · HRB 12345 Berlin</p>
+          <p>mk-electro.com · Von-Drais-Straße 3a · 68775 Ketsch<br>Tel: +49 (0) 6202 · 123456 · shop@mk-electro.com<br>USt-ID: DE123456789 · HRB 12345 Berlin</p>
         </div>
         <div class="inv-meta">
           <strong>RECHNUNG</strong>
@@ -586,7 +613,7 @@ function generateInvoiceHTML(order, invoiceNr) {
       </div>
       <div class="inv-addrs">
         <div class="inv-addr"><h4>Rechnungsadresse</h4><p>${order.customer?.name}<br>${order.customer?.street}<br>${order.customer?.zip} ${order.customer?.city}</p></div>
-        <div class="inv-addr"><h4>Absender</h4><p>MK-Electro GmbH<br>Musterstraße 1<br>10115 Berlin</p></div>
+        <div class="inv-addr"><h4>Absender</h4><p>MK-Electro<br>Inh. Andreas Kraus<br>Von-Drais-Straße 3a<br>68775 Ketsch</p></div>
       </div>
       <table class="inv-tbl">
         <thead><tr><th>Artikel</th><th style="text-align:center">Menge</th><th style="text-align:right">Einzelpreis</th><th style="text-align:right">Gesamt</th></tr></thead>
@@ -598,7 +625,7 @@ function generateInvoiceHTML(order, invoiceNr) {
         </tfoot>
       </table>
       ${paymentNote}
-      <div class="inv-footer">Vielen Dank für Ihren Einkauf! · MK-Electro GmbH · Musterstraße 1 · 10115 Berlin<br>Kein Ausweis der Steuer, da Kleinunternehmerregelung nach §19 UStG – oder USt-ID: DE123456789</div>
+      <div class="inv-footer">Vielen Dank für Ihren Einkauf! · MK-Electro · Von-Drais-Straße 3a · 68775 Ketsch<br>Kein Ausweis der Steuer, da Kleinunternehmerregelung nach §19 UStG – oder USt-ID: DE123456789</div>
     </div>
   `;
 }
@@ -926,8 +953,31 @@ function ContactPage({ setView }) {
   const submit = async () => {
     if (!validate()) return;
     setSending(true);
-    await new Promise(r => setTimeout(r, 1400));
-    setSending(false); setSent(true);
+    try {
+      const response = await fetch("https://formspree.io/f/mzdwqkoa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          phone: form.phone || "–",
+          subject: form.subject,
+          message: form.message,
+          _replyto: form.email,
+          _subject: `MK-Electro Kontakt: ${form.subject} von ${form.name}`,
+        }),
+      });
+      if (response.ok) {
+        setSending(false);
+        setSent(true);
+      } else {
+        setSending(false);
+        alert("Fehler beim Senden. Bitte versuche es erneut oder schreibe direkt an shop@mk-electro.com");
+      }
+    } catch {
+      setSending(false);
+      alert("Verbindungsfehler. Bitte versuche es erneut.");
+    }
   };
 
   return (
@@ -954,7 +1004,7 @@ function ContactPage({ setView }) {
             </div>
             <div className="cinfo-row">
               <div className="cinfo-icon"><I d={ICONS.mail} size={16}/></div>
-              <div><h4>E-Mail</h4><a href="mailto:info@mk-electro.com">info@mk-electro.com</a></div>
+              <div><h4>E-Mail</h4><a href="mailto:shop@mk-electro.com">shop@mk-electro.com</a></div>
             </div>
             <div className="cinfo-row">
               <div className="cinfo-icon"><I d={ICONS.phone} size={16}/></div>
@@ -1039,7 +1089,7 @@ function ImpressumPage() {
           <div>
             <h3>Kontakt</h3>
             <p>Telefon: +49 (0) 6202 · 123456<br/>
-            E-Mail: <a href="mailto:info@mk-electro.com" style={{color:"var(--acc)"}}>info@mk-electro.com</a></p>
+            E-Mail: <a href="mailto:shop@mk-electro.com" style={{color:"var(--acc)"}}>shop@mk-electro.com</a></p>
           </div>
         </div>
         <div className="imp-card">
@@ -1138,7 +1188,7 @@ function AGBPage({ setView }) {
           <p>Um Ihr Widerrufsrecht auszuüben, müssen Sie uns mittels einer eindeutigen Erklärung (z. B. ein mit der Post versandter Brief, Telefax oder E-Mail) über Ihren Entschluss, diesen Vertrag zu widerrufen, informieren:</p>
           <div className="legal-highlight">
             <p>MK-Electro · Inh. Andreas Kraus · Von-Drais-Straße 3a · 68775 Ketsch<br/>
-            E-Mail: info@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
+            E-Mail: shop@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
           </div>
           <p>Zur Wahrung der Widerrufsfrist reicht es aus, dass Sie die Mitteilung über die Ausübung des Widerrufsrechts vor Ablauf der Widerrufsfrist absenden.</p>
           <h3>Folgen des Widerrufs</h3>
@@ -1193,7 +1243,7 @@ function DatenschutzPage() {
           <h2>§ 1 Verantwortlicher</h2>
           <div className="legal-highlight">
             <p>MK-Electro · Inh. Andreas Kraus · Von-Drais-Straße 3a · 68775 Ketsch<br/>
-            E-Mail: info@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
+            E-Mail: shop@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
           </div>
         </div>
         <div className="legal-section">
@@ -1226,7 +1276,7 @@ function DatenschutzPage() {
             <li>Datenübertragbarkeit (Art. 20 DSGVO)</li>
             <li>Widerspruch gegen die Verarbeitung (Art. 21 DSGVO)</li>
           </ul>
-          <p>Zur Ausübung Ihrer Rechte wenden Sie sich bitte an: info@mk-electro.com</p>
+          <p>Zur Ausübung Ihrer Rechte wenden Sie sich bitte an: shop@mk-electro.com</p>
           <p>Unbeschadet eines anderweitigen verwaltungsrechtlichen oder gerichtlichen Rechtsbehelfs steht Ihnen das Recht auf Beschwerde bei einer Aufsichtsbehörde zu. Die zuständige Aufsichtsbehörde ist der <strong style={{color:"var(--tx)"}}>Landesbeauftragte für den Datenschutz und die Informationsfreiheit Baden-Württemberg</strong>.</p>
         </div>
         <div className="legal-section">
@@ -1293,7 +1343,7 @@ function ShopView({ products, categories, category, search, setCategory, setSear
           </div>
           <div className="footer-col">
             <h4>Kontakt</h4>
-            <p>info@mk-electro.com</p>
+            <p>shop@mk-electro.com</p>
             <p>+49 (0) 6202 · 123456</p>
             <p>Mo–Fr: 9:00–17:00 Uhr</p>
           </div>
@@ -1419,7 +1469,7 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
                         <td>
                           <div className="acts">
                             <button className="btn btn-o btn-sm" onClick={()=>setProductModal(p)}><I d={ICONS.edit} size={12}/></button>
-                            <button className="btn btn-d btn-sm" onClick={()=>{if(window.confirm("Löschen?"))deleteProduct(p.id)}}><I d={ICONS.trash} size={12}/></button>
+                            <button className="btn btn-d btn-sm" onClick={()=>{if(confirm("Löschen?"))deleteProduct(p.id)}}><I d={ICONS.trash} size={12}/></button>
                           </div>
                         </td>
                       </tr>
@@ -1528,6 +1578,7 @@ export default function App() {
     const order = { id:genId(), date:fmtDate(), status:"Neu", payment:data.payment, customer:data.customer, items:cart, total:cartTotal };
     setOrders(o=>[order,...o]);
     setCart([]); setCheckoutOpen(false); setOrderSuccess(order); setCartOpen(false);
+    sendOrderNotification(order); // → sendet E-Mail an shop@mk-electro.com
   };
 
   const saveProduct = (prod) => {
@@ -1640,7 +1691,7 @@ export default function App() {
                   {orderSuccess.payment==="vorkasse" && (
                     <div className="bank-box">
                       <p><strong>Bitte überweisen Sie auf:</strong></p>
-                      <p><span>Kontoinhaber:</span> <strong>MK-Electro · Andreas Kraus</strong></p>
+                      <p><span>Kontoinhaber:</span> <strong>MK-Electro · Inh. Andreas Kraus</strong></p>
                       <p><span>IBAN:</span> <strong>DE89 3704 0044 0532 0130 00</strong></p>
                       <p><span>BIC:</span> <strong>COBADEFFXXX</strong></p>
                       <p><span>Verwendungszweck:</span> <strong>{orderSuccess.id}</strong></p>
