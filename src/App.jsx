@@ -2730,34 +2730,30 @@ function CustomerAccountPage({ user, orders, onLogout, setView }) {
   const name = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Kunde";
   const email = user?.email || "";
 
-  // Newsletter status from user_metadata
+  // Newsletter
   const [newsletter, setNewsletter] = useState(user?.user_metadata?.newsletter === true);
   const [nlSaving, setNlSaving] = useState(false);
   const [nlMsg, setNlMsg] = useState("");
+  // Expanded order detail
+  const [expandedOrder, setExpandedOrder] = useState(null);
 
   const toggleNewsletter = async () => {
     setNlSaving(true); setNlMsg("");
     const newVal = !newsletter;
     try {
-      const { error } = await supabase.auth.updateUser({
-        data: { newsletter: newVal }
-      });
+      const { error } = await supabase.auth.updateUser({ data: { newsletter: newVal } });
       if (error) throw error;
       setNewsletter(newVal);
       setNlMsg(newVal ? "Newsletter erfolgreich abonniert." : "Newsletter erfolgreich abgemeldet.");
-    } catch(e) {
-      setNlMsg("Fehler: " + e.message);
-    }
+    } catch(e) { setNlMsg("Fehler: " + e.message); }
     setNlSaving(false);
     setTimeout(() => setNlMsg(""), 3000);
   };
 
-  // Filter orders for this customer by email
   const myOrders = orders.filter(o =>
     o.customer?.email?.toLowerCase() === email.toLowerCase()
   ).sort((a,b) => b.id.localeCompare(a.id));
 
-  // Status timeline steps
   const timelineSteps = ["Neu","Bezahlt","Versendet","Zugestellt"];
   const getStepState = (step, currentStatus) => {
     if (currentStatus === "Storniert") return step === "Neu" ? "canc" : "none";
@@ -2769,15 +2765,52 @@ function CustomerAccountPage({ user, orders, onLogout, setView }) {
   };
   const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Zugestellt":"s-paid","Storniert":"s-canc" };
 
+  // Download invoice as printable HTML
+  const downloadInvoice = (o) => {
+    const invoiceNr = "RE-" + o.id.replace("MKE-","") + "-1";
+    const html = generateInvoiceHTML(o, invoiceNr);
+    const win = window.open("", "_blank");
+    win.document.write(`<!DOCTYPE html><html lang="de"><head>
+      <meta charset="UTF-8"/>
+      <title>Rechnung ${invoiceNr}</title>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@300;400;500;600&display=swap');
+        body{font-family:'Barlow',sans-serif;background:#fff;margin:0;padding:2rem;color:#111}
+        .inv-preview{max-width:800px;margin:0 auto}
+        .inv-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:2px solid #e8a020}
+        .inv-company h2{font-family:'Barlow Condensed',sans-serif;font-size:1.6rem;font-weight:900;color:#e8a020;margin:0 0 .2rem}
+        .inv-company p,.inv-meta{font-size:.75rem;color:#555;margin:0}
+        .inv-meta{text-align:right}.inv-meta strong{display:block;font-size:1rem;color:#111;font-family:'Barlow Condensed';font-weight:900}
+        .inv-addrs{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.4rem}
+        .inv-addr h4{font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:#888;margin:0 0 .3rem}
+        .inv-addr p{font-size:.82rem;color:#222;margin:0}
+        .inv-tbl{width:100%;border-collapse:collapse;margin-bottom:1.2rem}
+        .inv-tbl th{background:#f5f5f5;padding:.5rem .7rem;text-align:left;font-size:.72rem;text-transform:uppercase;color:#666;border-bottom:2px solid #e8a020}
+        .inv-tbl td{padding:.45rem .7rem;border-bottom:1px solid #eee;font-size:.8rem}
+        .inv-tbl tfoot td{border-top:2px solid #e8a020;font-weight:700;font-size:.88rem}
+        .inv-footer{margin-top:1.2rem;padding-top:1rem;border-top:1px solid #eee;font-size:.72rem;color:#888;text-align:center}
+        .inv-bank{background:#fffbf2;border:1px solid #e8a020;border-radius:6px;padding:.7rem;margin:.8rem 0;font-size:.75rem}
+        @media print{body{padding:.5rem}}
+      </style>
+    </head><body>${html}<br/><button onclick="window.print()" style="margin-top:1rem;padding:.5rem 1.5rem;background:#e8a020;border:none;border-radius:6px;cursor:pointer;font-size:.9rem;font-family:Barlow,sans-serif">🖨️ Drucken / Als PDF speichern</button></body></html>`);
+    win.document.close();
+  };
+
   return (
     <div style={{background:"var(--bg)",minHeight:"calc(100vh - 58px)"}}>
       <div className="acc-wrap">
+
         {/* Header */}
         <div className="acc-header">
           <div className="acc-avatar">{initials}</div>
           <div style={{flex:1}}>
             <div className="acc-name">{name}</div>
             <div className="acc-email">{email}</div>
+            {user?.user_metadata?.street && (
+              <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".15rem"}}>
+                📍 {user.user_metadata.street}, {user.user_metadata.zip} {user.user_metadata.city}
+              </div>
+            )}
           </div>
           <div style={{display:"flex",gap:".5rem",flexWrap:"wrap"}}>
             <button className="btn btn-o btn-sm" onClick={()=>setView("shop")}>
@@ -2789,32 +2822,29 @@ function CustomerAccountPage({ user, orders, onLogout, setView }) {
           </div>
         </div>
 
-        {/* Newsletter Section */}
+        {/* Newsletter */}
         <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"12px",padding:"1.2rem 1.4rem",marginBottom:"1.8rem",display:"flex",alignItems:"center",gap:"1rem",flexWrap:"wrap"}}>
           <div style={{flex:1}}>
             <div style={{fontWeight:700,fontSize:".95rem",display:"flex",alignItems:"center",gap:".4rem"}}>
               <I d={ICONS.newsletter} size={16}/> Newsletter
             </div>
             <div style={{fontSize:".78rem",color:"var(--mu)",marginTop:".2rem"}}>
-              {newsletter ? "Sie erhalten unsere Angebote und Neuigkeiten per E-Mail." : "Aktuell kein Newsletter — jetzt abonnieren und keine Angebote verpassen."}
+              {newsletter ? "Sie erhalten unsere Angebote per E-Mail." : "Jetzt abonnieren und keine Angebote verpassen."}
             </div>
             {nlMsg && (
-              <div style={{fontSize:".75rem",color: nlMsg.startsWith("Fehler") ? "var(--err)" : "var(--ok)",marginTop:".4rem",display:"flex",alignItems:"center",gap:".3rem"}}>
-                <I d={nlMsg.startsWith("Fehler") ? ICONS.x : ICONS.check} size={12}/>
-                {nlMsg}
+              <div style={{fontSize:".75rem",color:nlMsg.startsWith("Fehler")?"var(--err)":"var(--ok)",marginTop:".4rem",display:"flex",alignItems:"center",gap:".3rem"}}>
+                <I d={nlMsg.startsWith("Fehler")?ICONS.x:ICONS.check} size={12}/>{nlMsg}
               </div>
             )}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:".75rem",flexShrink:0}}>
-            <span style={{fontSize:".8rem",color: newsletter ? "var(--ok)" : "var(--mu)",fontWeight:600}}>
+            <span style={{fontSize:".8rem",color:newsletter?"var(--ok)":"var(--mu)",fontWeight:600}}>
               {newsletter ? "✓ Abonniert" : "Nicht abonniert"}
             </span>
-            <button
-              className={`btn btn-sm${newsletter ? " btn-d" : " btn-p"}`}
-              onClick={toggleNewsletter}
-              disabled={nlSaving}
+            <button className={`btn btn-sm${newsletter?" btn-d":" btn-p"}`}
+              onClick={toggleNewsletter} disabled={nlSaving}
               style={{minWidth:"120px",justifyContent:"center"}}>
-              {nlSaving ? "Bitte warten…" : newsletter ? "Abmelden" : "Jetzt abonnieren"}
+              {nlSaving?"Bitte warten…":newsletter?"Abmelden":"Jetzt abonnieren"}
             </button>
           </div>
         </div>
@@ -2829,70 +2859,195 @@ function CustomerAccountPage({ user, orders, onLogout, setView }) {
           <div className="acc-empty">
             <I d={ICONS.box} size={48}/>
             <p style={{marginTop:"1rem",fontSize:".95rem"}}>Noch keine Bestellungen vorhanden.</p>
-            <button className="btn btn-p" style={{marginTop:"1rem"}} onClick={()=>setView("shop")}>
-              Jetzt einkaufen →
-            </button>
+            <button className="btn btn-p" style={{marginTop:"1rem"}} onClick={()=>setView("shop")}>Jetzt einkaufen →</button>
           </div>
-        ) : myOrders.map(o => (
-          <div key={o.id} className="acc-order-card">
-            <div className="acc-order-hdr">
-              <div>
-                <div className="acc-order-id">#{o.id}</div>
-                <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".1rem"}}>
-                  {o.date} · {o.payment === "paypal" ? "PayPal" : "Vorkasse"}
+        ) : myOrders.map(o => {
+          const isExpanded = expandedOrder === o.id;
+          const subtotal = (o.items||[]).reduce((s,i)=>s+i.price*i.qty,0);
+          const shippingCost = o.total - subtotal > 0.01 ? o.total - subtotal : (subtotal >= 50 ? 0 : 6);
+          const serialMap = {};
+          if (o.serial_numbers) o.serial_numbers.forEach(s=>{ if(s.serial) serialMap[s.id]=s.serial; });
+
+          return (
+            <div key={o.id} className="acc-order-card">
+              {/* Order Header */}
+              <div className="acc-order-hdr" style={{cursor:"pointer"}} onClick={()=>setExpandedOrder(isExpanded?null:o.id)}>
+                <div>
+                  <div className="acc-order-id">#{o.id}</div>
+                  <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".1rem"}}>
+                    {o.date} · {o.payment==="paypal"?"PayPal":"Vorkasse"}
+                    {o.carrier && <span style={{marginLeft:".5rem"}}>· 📦 {o.carrier}</span>}
+                  </div>
+                </div>
+                <div style={{textAlign:"right",display:"flex",alignItems:"center",gap:".75rem"}}>
+                  <div>
+                    <div className="acc-order-total">{fmt(o.total)}</div>
+                    <span className={`spill ${statusClass[o.status]||"s-new"}`} style={{fontSize:".7rem"}}>{o.status}</span>
+                  </div>
+                  <div style={{color:"var(--mu)",transition:"transform .2s",transform:isExpanded?"rotate(90deg)":"rotate(0deg)"}}>
+                    <I d={ICONS.chev} size={18}/>
+                  </div>
                 </div>
               </div>
-              <div style={{textAlign:"right"}}>
-                <div className="acc-order-total">{fmt(o.total)}</div>
-                <span className={`spill ${statusClass[o.status]||"s-new"}`} style={{fontSize:".7rem"}}>{o.status}</span>
-              </div>
-            </div>
 
-            {/* Artikel */}
-            <div className="acc-order-items">
-              {(o.items||[]).map(i=>(
-                <div key={i.id} style={{display:"flex",justifyContent:"space-between",padding:".18rem 0"}}>
-                  <span>{i.name} <span style={{opacity:.6}}>× {i.qty}</span></span>
-                  <span style={{color:"var(--acc)"}}>{fmt(i.price*i.qty)}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Status Timeline */}
-            {o.status !== "Storniert" ? (
-              <div className="acc-status-timeline">
-                {timelineSteps.map((step, idx) => {
-                  const state = getStepState(step, o.status);
-                  return (
-                    <React.Fragment key={step}>
-                      <div className="acc-tl-step">
-                        <div className={`acc-tl-dot${state!=="none"?" "+state:""}`}>
-                          {state==="done" && <I d={ICONS.check} size={11} sw={3}/>}
-                          {state==="active" && <I d={ICONS.chev} size={11} sw={3}/>}
+              {/* Status Timeline */}
+              {o.status !== "Storniert" ? (
+                <div className="acc-status-timeline">
+                  {timelineSteps.map((step, idx) => {
+                    const state = getStepState(step, o.status);
+                    return (
+                      <React.Fragment key={step}>
+                        <div className="acc-tl-step">
+                          <div className={`acc-tl-dot${state!=="none"?" "+state:""}`}>
+                            {state==="done" && <I d={ICONS.check} size={11} sw={3}/>}
+                            {state==="active" && <I d={ICONS.chev} size={11} sw={3}/>}
+                          </div>
+                          <div className={`acc-tl-label${state!=="none"?" "+state:""}`}>{step}</div>
                         </div>
-                        <div className={`acc-tl-label${state!=="none"?" "+state:""}`}>{step}</div>
-                      </div>
-                      {idx < timelineSteps.length-1 && (
-                        <div className={`acc-tl-line${state==="done"?" done":""}`}/>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={{marginTop:".75rem",padding:".5rem .75rem",background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.2)",borderRadius:"7px",fontSize:".78rem",color:"var(--err)",display:"flex",alignItems:"center",gap:".4rem"}}>
-                <I d={ICONS.x} size={13}/> Diese Bestellung wurde storniert.
-              </div>
-            )}
+                        {idx < timelineSteps.length-1 && <div className={`acc-tl-line${state==="done"?" done":""}`}/>}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{marginTop:".75rem",padding:".5rem .75rem",background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.2)",borderRadius:"7px",fontSize:".78rem",color:"var(--err)",display:"flex",alignItems:"center",gap:".4rem"}}>
+                  <I d={ICONS.x} size={13}/> Diese Bestellung wurde storniert.
+                </div>
+              )}
 
-            {/* Vorkasse: Bankverbindung anzeigen wenn noch nicht bezahlt */}
-            {o.payment === "vorkasse" && o.status === "Neu" && (
-              <div style={{marginTop:".85rem"}}>
-                <BankInfo orderId={o.id} total={o.total} />
-              </div>
-            )}
-          </div>
-        ))}
+              {/* EXPANDED DETAILS */}
+              {isExpanded && (
+                <div style={{marginTop:"1rem",borderTop:"1px solid var(--br)",paddingTop:"1rem"}}>
+
+                  {/* Artikel + Seriennummern */}
+                  <div style={{marginBottom:"1rem"}}>
+                    <div style={{fontSize:".72rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:".5px",marginBottom:".5rem"}}>
+                      Bestellte Artikel
+                    </div>
+                    <div style={{background:"var(--sf2)",borderRadius:"8px",padding:".75rem"}}>
+                      {(o.items||[]).map(i => {
+                        const serial = serialMap[i.id];
+                        return (
+                          <div key={i.id} style={{display:"flex",justifyContent:"space-between",padding:".3rem 0",borderBottom:"1px solid var(--br)"}}>
+                            <div>
+                              <div style={{fontSize:".85rem"}}>{i.name} <span style={{opacity:.6,fontSize:".8rem"}}>× {i.qty}</span></div>
+                              {serial && (
+                                <div style={{fontSize:".72rem",color:"var(--mu)",fontFamily:"monospace",marginTop:".1rem"}}>
+                                  SN: {serial}
+                                </div>
+                              )}
+                            </div>
+                            <span style={{color:"var(--acc)",fontWeight:700,fontSize:".85rem",flexShrink:0,marginLeft:".5rem"}}>{fmt(i.price*i.qty)}</span>
+                          </div>
+                        );
+                      })}
+                      {/* Versandkosten */}
+                      <div style={{display:"flex",justifyContent:"space-between",padding:".3rem 0",fontSize:".82rem"}}>
+                        <span style={{color:"var(--mu)",display:"flex",alignItems:"center",gap:".3rem"}}>
+                          <I d={ICONS.truck} size={12}/> Versandkosten
+                        </span>
+                        <span style={{color:shippingCost===0?"var(--ok)":"var(--tx)",fontWeight:600}}>
+                          {shippingCost===0 ? "Kostenlos" : fmt(shippingCost)}
+                        </span>
+                      </div>
+                      {/* Gesamt */}
+                      <div style={{display:"flex",justifyContent:"space-between",padding:".5rem 0 0",borderTop:"1px solid var(--br)",marginTop:".2rem"}}>
+                        <span style={{fontFamily:"Barlow Condensed",fontWeight:900,fontSize:"1rem"}}>Gesamtbetrag</span>
+                        <span style={{fontFamily:"Barlow Condensed",fontWeight:900,fontSize:"1rem",color:"var(--acc)"}}>{fmt(o.total)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Lieferadresse */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem",marginBottom:"1rem"}}>
+                    <div>
+                      <div style={{fontSize:".72rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:".5px",marginBottom:".35rem"}}>Lieferadresse</div>
+                      <div style={{fontSize:".83rem",lineHeight:1.7}}>
+                        {o.customer?.name}<br/>
+                        {o.customer?.street}<br/>
+                        {o.customer?.zip} {o.customer?.city}
+                      </div>
+                    </div>
+                    {/* Tracking */}
+                    {(o.carrier || o.tracking_number) && (
+                      <div>
+                        <div style={{fontSize:".72rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:".5px",marginBottom:".35rem"}}>Versand</div>
+                        {o.carrier && <div style={{fontSize:".83rem",fontWeight:600}}>{o.carrier}</div>}
+                        {o.tracking_number && (
+                          <div style={{fontFamily:"monospace",fontSize:".8rem",color:"var(--inf)",marginTop:".2rem",wordBreak:"break-all"}}>
+                            {o.tracking_number}
+                          </div>
+                        )}
+                        {/* Tracking Link */}
+                        {o.tracking_number && (o.carrier==="DHL"||o.carrier==="DHL Express") && (
+                          <a href={`https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?idc=${o.tracking_number}`}
+                            target="_blank" rel="noreferrer"
+                            style={{fontSize:".75rem",color:"var(--inf)",marginTop:".35rem",display:"flex",alignItems:"center",gap:".25rem",textDecoration:"none"}}>
+                            <I d={ICONS.link} size={11}/> Sendung verfolgen
+                          </a>
+                        )}
+                        {o.tracking_number && o.carrier==="Hermes" && (
+                          <a href={`https://www.myhermes.de/empfangen/sendungsverfolgung/sendungsinformation/#${o.tracking_number}`}
+                            target="_blank" rel="noreferrer"
+                            style={{fontSize:".75rem",color:"var(--inf)",marginTop:".35rem",display:"flex",alignItems:"center",gap:".25rem",textDecoration:"none"}}>
+                            <I d={ICONS.link} size={11}/> Sendung verfolgen
+                          </a>
+                        )}
+                        {o.tracking_number && o.carrier==="UPS" && (
+                          <a href={`https://www.ups.com/track?tracknum=${o.tracking_number}`}
+                            target="_blank" rel="noreferrer"
+                            style={{fontSize:".75rem",color:"var(--inf)",marginTop:".35rem",display:"flex",alignItems:"center",gap:".25rem",textDecoration:"none"}}>
+                            <I d={ICONS.link} size={11}/> Sendung verfolgen
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Vorkasse Bankdaten */}
+                  {o.payment==="vorkasse" && o.status==="Neu" && (
+                    <div style={{marginBottom:"1rem"}}>
+                      <BankInfo orderId={o.id} total={o.total}/>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{display:"flex",gap:".6rem",flexWrap:"wrap",paddingTop:".5rem"}}>
+                    <button className="btn btn-p btn-sm" onClick={()=>downloadInvoice(o)}
+                      style={{display:"flex",alignItems:"center",gap:".4rem"}}>
+                      <I d={ICONS.invoice} size={14}/> Rechnung herunterladen / drucken
+                    </button>
+                    <button className="btn btn-o btn-sm" onClick={()=>setExpandedOrder(null)}>
+                      Schließen
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Quick summary wenn nicht expanded */}
+              {!isExpanded && (
+                <div className="acc-order-items" style={{marginTop:".5rem"}}>
+                  {(o.items||[]).slice(0,2).map(i=>(
+                    <div key={i.id} style={{display:"flex",justifyContent:"space-between",padding:".15rem 0",fontSize:".8rem"}}>
+                      <span style={{color:"var(--mu)"}}>{i.name.split(" ").slice(0,4).join(" ")} × {i.qty}</span>
+                      <span style={{color:"var(--acc)"}}>{fmt(i.price*i.qty)}</span>
+                    </div>
+                  ))}
+                  {(o.items||[]).length > 2 && (
+                    <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".15rem"}}>
+                      + {o.items.length-2} weitere Artikel — <span style={{color:"var(--acc)",cursor:"pointer"}} onClick={()=>setExpandedOrder(o.id)}>Details anzeigen →</span>
+                    </div>
+                  )}
+                  {(o.items||[]).length <= 2 && (
+                    <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".35rem",cursor:"pointer",color:"var(--acc)"}} onClick={()=>setExpandedOrder(o.id)}>
+                      Details & Rechnung anzeigen →
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
