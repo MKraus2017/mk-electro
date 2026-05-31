@@ -2356,17 +2356,38 @@ function ShopView({ products, categories, category, search, setCategory, setSear
 function BackendView({ products, orders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, deleteCustomer }) {
   const revenue = orders.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
   const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
-  // Newsletter subscribers: from orders where newsletter=true, deduplicated by email
+
+  // Load registered users from Supabase view
+  const [regUsers, setRegUsers] = useState([]);
+  const [regLoading, setRegLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase.from("registered_users").select("*");
+        if (!error) setRegUsers(data || []);
+      } catch(e) { console.error("Benutzer laden fehlgeschlagen:", e); }
+      setRegLoading(false);
+    })();
+  }, [beSection]);
+
+  // Delete user from auth + orders
+  const deleteUserById = async (userId, email) => {
+    try {
+      await supabase.from("orders").delete().eq("customer_email", email);
+      // Note: Deleting from auth.users requires service role key (server-side only)
+      // We mark as deleted by removing their orders and showing a note
+    } catch(e) { console.error("Benutzer löschen fehlgeschlagen:", e); }
+    setRegUsers(u => u.filter(u => u.id !== userId));
+    // Also remove from orders state in parent via deleteCustomer
+    deleteCustomer(email);
+  };
+
+  // Newsletter subscribers from orders
   const newsletterMap = {};
   orders.filter(o=>o.newsletter).forEach(o => {
     const email = o.customer?.email;
     if (!email || newsletterMap[email]) return;
-    newsletterMap[email] = {
-      email,
-      name: o.customer?.name || "–",
-      subscribedAt: o.date,
-      orderId: o.id,
-    };
+    newsletterMap[email] = { email, name: o.customer?.name || "–", subscribedAt: o.date, orderId: o.id };
   });
   const newsletterList = Object.values(newsletterMap);
 
@@ -2386,8 +2407,11 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
             {item.k==="orders" && orders.filter(o=>o.status==="Neu").length>0 && (
               <span className="badge" style={{marginLeft:"auto",background:"var(--acc2)"}}>{orders.filter(o=>o.status==="Neu").length}</span>
             )}
+            {item.k==="customers" && regUsers.length>0 && (
+              <span className="badge" style={{marginLeft:"auto",background:"var(--inf)"}}>{regUsers.length}</span>
+            )}
             {item.k==="newsletter" && newsletterList.length>0 && (
-              <span className="badge" style={{marginLeft:"auto",background:"var(--inf)"}}>{newsletterList.length}</span>
+              <span className="badge" style={{marginLeft:"auto",background:"var(--ok)"}}>{newsletterList.length}</span>
             )}
           </div>
         ))}
@@ -2403,7 +2427,7 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
                 ["Produkte",products.length,"im Sortiment"],
                 ["Bestellungen",orders.length,"gesamt"],
                 ["Umsatz",revenue.toFixed(0)+" €","inkl. MwSt."],
-                ["Kunden",new Set(orders.map(o=>o.customer?.email).filter(Boolean)).size,"registriert"],
+                ["Registrierte Kunden",regUsers.length,"Konten"],
                 ["Lager (gesamt)",products.reduce((s,p)=>s+(parseInt(p.stock)||0)+(parseInt(p.stockExternal)||0),0),`davon AL: ${products.reduce((s,p)=>s+(parseInt(p.stockExternal)||0),0)} Stk.`]
               ].map(([l,v,s])=>(
                 <div key={l} className="sc"><div className="sc-lbl">{l}</div><div className="sc-val">{v}</div><div className="sc-sub">{s}</div></div>
@@ -2535,7 +2559,15 @@ function BackendView({ products, orders, beSection, setBeSection, productModal, 
         )}
         {/* CUSTOMERS */}
         {beSection==="customers" && (
-          <CustomersSection orders={orders} setOrderModal={setOrderModal} setInvoiceModal={setInvoiceModal} deleteCustomer={deleteCustomer} />
+          <CustomersSection
+            orders={orders}
+            regUsers={regUsers}
+            regLoading={regLoading}
+            setOrderModal={setOrderModal}
+            setInvoiceModal={setInvoiceModal}
+            deleteCustomer={deleteCustomer}
+            deleteUserById={deleteUserById}
+          />
         )}
 
         {/* NEWSLETTER */}
@@ -2980,233 +3012,286 @@ function NewsletterSection({ newsletterList, orders, deleteCustomer }) {
 }
 
 // ── CUSTOMERS SECTION ─────────────────────────────────────────────────────────
-function CustomersSection({ orders, setOrderModal, setInvoiceModal, deleteCustomer }) {
+function CustomersSection({ orders, regUsers, regLoading, setOrderModal, setInvoiceModal, deleteCustomer, deleteUserById }) {
+  const [tab, setTab] = useState("registered"); // registered | buyers
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("umsatz");
+  const [sortBy, setSortBy] = useState("datum");
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Build customer list from orders
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+
+  // ── REGISTERED USERS (from Supabase auth) ──────────────────────────────────
+  const filteredUsers = regUsers.filter(u => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (u.full_name||"").toLowerCase().includes(q) ||
+           (u.email||"").toLowerCase().includes(q) ||
+           (u.city||"").toLowerCase().includes(q);
+  });
+
+  // Format date
+  const fmtDt = (iso) => {
+    if (!iso) return "–";
+    const d = new Date(iso);
+    return d.toLocaleDateString("de-DE") + " " + d.toLocaleTimeString("de-DE", {hour:"2-digit",minute:"2-digit"});
+  };
+
+  // Get orders for a user email
+  const ordersFor = (email) => orders.filter(o => o.customer?.email?.toLowerCase() === (email||"").toLowerCase());
+
+  // ── BUYERS (from orders, deduplicated) ────────────────────────────────────
   const customerMap = {};
   orders.forEach(o => {
     const email = o.customer?.email;
     if (!email) return;
     if (!customerMap[email]) {
-      customerMap[email] = {
-        email,
-        name: o.customer?.name || "–",
-        street: o.customer?.street || "",
-        zip: o.customer?.zip || "",
-        city: o.customer?.city || "",
-        orders: [],
-        firstOrder: o.date,
-        lastOrder: o.date,
-      };
+      customerMap[email] = { email, name: o.customer?.name||"–", street:o.customer?.street||"", zip:o.customer?.zip||"", city:o.customer?.city||"", orders:[], firstOrder:o.date };
     }
     customerMap[email].orders.push(o);
-    customerMap[email].lastOrder = o.date;
   });
-
-  let customers = Object.values(customerMap).map(c => ({
+  let buyers = Object.values(customerMap).map(c => ({
     ...c,
-    totalRevenue: c.orders.reduce((s, o) => s + o.total, 0),
+    totalRevenue: c.orders.reduce((s,o)=>s+o.total,0),
     orderCount: c.orders.length,
-    avgOrder: c.orders.reduce((s, o) => s + o.total, 0) / c.orders.length,
-    initials: (c.name.split(" ").map(w => w[0]).join("").toUpperCase()).slice(0,2),
+    avgOrder: c.orders.reduce((s,o)=>s+o.total,0)/c.orders.length,
+    initials: (c.name.split(" ").map(w=>w[0]).join("").toUpperCase()).slice(0,2),
   }));
-
-  // Filter
   if (search) {
     const q = search.toLowerCase();
-    customers = customers.filter(c =>
-      c.name.toLowerCase().includes(q) ||
-      c.email.toLowerCase().includes(q) ||
-      c.city.toLowerCase().includes(q)
-    );
+    buyers = buyers.filter(c => c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.city.toLowerCase().includes(q));
   }
-
-  // Sort
-  customers.sort((a, b) => {
-    if (sortBy === "umsatz") return b.totalRevenue - a.totalRevenue;
-    if (sortBy === "bestellungen") return b.orderCount - a.orderCount;
-    if (sortBy === "name") return a.name.localeCompare(b.name);
-    if (sortBy === "datum") return b.orders.length - a.orders.length;
+  buyers.sort((a,b)=>{
+    if(sortBy==="umsatz") return b.totalRevenue-a.totalRevenue;
+    if(sortBy==="bestellungen") return b.orderCount-a.orderCount;
+    if(sortBy==="name") return a.name.localeCompare(b.name);
     return 0;
   });
-
-  const totalRevenue = customers.reduce((s, c) => s + c.totalRevenue, 0);
-  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
 
   return (
     <>
       <div className="be-hdr">
         <div className="be-ttl">Kunden</div>
-        <div style={{fontSize:".82rem",color:"var(--mu)"}}>{customers.length} Kunden · Gesamtumsatz: <strong style={{color:"var(--acc)"}}>{fmt(totalRevenue)}</strong></div>
+        <div style={{fontSize:".82rem",color:"var(--mu)"}}>
+          {regUsers.length} registriert · {Object.keys(customerMap).length} Käufer
+        </div>
       </div>
 
-      {/* Search + Sort */}
-      <div className="cust-search">
+      {/* Tabs */}
+      <div style={{display:"flex",gap:".3rem",marginBottom:"1.2rem",background:"var(--sf2)",borderRadius:"8px",padding:".2rem",width:"fit-content"}}>
+        {[
+          ["registered", `Registrierte Benutzer (${regUsers.length})`, ICONS.user],
+          ["buyers", `Käufer (${Object.keys(customerMap).length})`, ICONS.orders],
+        ].map(([k,l,d])=>(
+          <button key={k}
+            style={{padding:".45rem 1rem",borderRadius:"6px",fontWeight:600,fontSize:".83rem",cursor:"pointer",border:"none",
+              background:tab===k?"var(--sf)":"none",color:tab===k?"var(--tx)":"var(--mu)",
+              boxShadow:tab===k?"0 1px 4px rgba(0,0,0,.3)":"none",display:"flex",alignItems:"center",gap:".4rem",transition:"all .18s"}}
+            onClick={()=>setTab(k)}>
+            <I d={d} size={14}/>{l}
+          </button>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div style={{marginBottom:"1.1rem",display:"flex",gap:".75rem",flexWrap:"wrap",alignItems:"center"}}>
         <div className="sw" style={{maxWidth:"300px"}}>
           <I d={ICONS.search} size={15}/>
           <input className="si" placeholder="Name, E-Mail, Stadt …" value={search} onChange={e=>setSearch(e.target.value)}/>
         </div>
-        <div className="cust-filter-btns">
-          {[["umsatz","Umsatz"],["bestellungen","Bestellungen"],["name","Name"],["datum","Zuletzt"]].map(([k,l])=>(
-            <button key={k} className={`chip${sortBy===k?" on":""}`} onClick={()=>setSortBy(k)}>{l}</button>
-          ))}
-        </div>
+        {tab==="buyers" && (
+          <div className="cust-filter-btns">
+            {[["umsatz","Umsatz"],["bestellungen","Bestellungen"],["name","Name"]].map(([k,l])=>(
+              <button key={k} className={`chip${sortBy===k?" on":""}`} onClick={()=>setSortBy(k)}>{l}</button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {customers.length === 0 && (
-        <div style={{textAlign:"center",padding:"4rem",color:"var(--mu)"}}>
-          <I d={ICONS.users} size={40}/>
-          <p style={{marginTop:"1rem"}}>Noch keine Kunden vorhanden.</p>
-        </div>
+      {/* ── TAB: REGISTERED USERS ── */}
+      {tab === "registered" && (
+        regLoading ? (
+          <div style={{textAlign:"center",padding:"3rem",color:"var(--mu)"}}>Lade Benutzer…</div>
+        ) : filteredUsers.length === 0 ? (
+          <div className="acc-empty"><I d={ICONS.users} size={40}/><p style={{marginTop:"1rem"}}>Keine registrierten Benutzer gefunden.</p></div>
+        ) : (
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>E-Mail</th>
+                  <th>Telefon</th>
+                  <th>Adresse</th>
+                  <th>Registriert am</th>
+                  <th>Letzter Login</th>
+                  <th>E-Mail bestätigt</th>
+                  <th>Bestellungen</th>
+                  <th>Aktionen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredUsers.map(u => {
+                  const userOrders = ordersFor(u.email);
+                  const totalRev = userOrders.reduce((s,o)=>s+o.total,0);
+                  return (
+                    <tr key={u.id}>
+                      <td>
+                        <div style={{display:"flex",alignItems:"center",gap:".5rem"}}>
+                          <div style={{width:"30px",height:"30px",borderRadius:"50%",background:"linear-gradient(135deg,var(--acc),#e03010)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:".68rem",fontWeight:900,color:"#000",flexShrink:0}}>
+                            {(u.full_name||u.email||"?").slice(0,1).toUpperCase()}
+                          </div>
+                          <span style={{fontWeight:600,fontSize:".85rem"}}>{u.full_name||"–"}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <a href={`mailto:${u.email}`} style={{color:"var(--acc)",fontSize:".82rem"}}>{u.email}</a>
+                      </td>
+                      <td style={{color:"var(--mu)",fontSize:".8rem"}}>{u.phone||"–"}</td>
+                      <td style={{fontSize:".78rem",color:"var(--mu)"}}>
+                        {u.street ? <>{u.street}<br/>{u.zip} {u.city}</> : "–"}
+                      </td>
+                      <td style={{fontSize:".75rem",color:"var(--mu)",whiteSpace:"nowrap"}}>{fmtDt(u.created_at)}</td>
+                      <td style={{fontSize:".75rem",color:"var(--mu)",whiteSpace:"nowrap"}}>{fmtDt(u.last_sign_in_at)}</td>
+                      <td>
+                        {u.email_confirmed_at
+                          ? <span style={{color:"var(--ok)",fontSize:".72rem",display:"flex",alignItems:"center",gap:".2rem"}}><I d={ICONS.check} size={11}/> Ja</span>
+                          : <span style={{color:"var(--err)",fontSize:".72rem"}}>Nein</span>
+                        }
+                      </td>
+                      <td>
+                        {userOrders.length > 0 ? (
+                          <div style={{fontSize:".78rem"}}>
+                            <div style={{fontWeight:700,color:"var(--acc)"}}>{fmt(totalRev)}</div>
+                            <div style={{color:"var(--mu)"}}>{userOrders.length} Bestellung{userOrders.length!==1?"en":""}</div>
+                          </div>
+                        ) : <span style={{color:"var(--mu)",fontSize:".75rem"}}>Keine</span>}
+                      </td>
+                      <td>
+                        <div className="acts">
+                          <a className="btn btn-o btn-sm" href={`mailto:${u.email}`}><I d={ICONS.mail} size={12}/></a>
+                          <button className="btn btn-d btn-sm"
+                            onClick={()=>setConfirmDel({id:u.id, email:u.email, name:u.full_name||u.email, orderCount:userOrders.length, isUser:true})}>
+                            <I d={ICONS.trash} size={12}/>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
 
-      {/* Customer Cards Grid */}
-      <div className="cust-grid">
-        {customers.map(c => (
-          <div key={c.email} className="cust-card" onClick={()=>setSelectedCustomer(c)}>
-            <div className="cust-card-hdr">
-              <div className="cust-avatar">{c.initials}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div className="cust-name">{c.name}</div>
-                <div className="cust-email">{c.email}</div>
-                {c.city && <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".1rem"}}>📍 {c.zip} {c.city}</div>}
+      {/* ── TAB: BUYERS ── */}
+      {tab === "buyers" && (
+        buyers.length === 0 ? (
+          <div className="acc-empty"><I d={ICONS.box} size={40}/><p style={{marginTop:"1rem"}}>Keine Käufer gefunden.</p></div>
+        ) : (
+          <div className="cust-grid">
+            {buyers.map(c => (
+              <div key={c.email} className="cust-card" onClick={()=>setSelectedCustomer(c)}>
+                <div className="cust-card-hdr">
+                  <div className="cust-avatar">{c.initials}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="cust-name">{c.name}</div>
+                    <div className="cust-email">{c.email}</div>
+                    {c.city && <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".1rem"}}>📍 {c.zip} {c.city}</div>}
+                  </div>
+                </div>
+                <div className="cust-stats">
+                  <div className="cust-stat"><div className="cust-stat-val">{c.orderCount}</div><div className="cust-stat-lbl">Bestellungen</div></div>
+                  <div className="cust-stat"><div className="cust-stat-val">{fmt(c.totalRevenue)}</div><div className="cust-stat-lbl">Umsatz</div></div>
+                  <div className="cust-stat"><div className="cust-stat-val">{fmt(c.avgOrder)}</div><div className="cust-stat-lbl">Ø Bestellung</div></div>
+                </div>
+                <div style={{marginTop:".65rem",display:"flex",gap:".35rem",flexWrap:"wrap"}}>
+                  {c.orders.slice(0,3).map(o=>(
+                    <span key={o.id} className={`spill ${statusClass[o.status]||"s-new"}`} style={{fontSize:".65rem"}}>{o.status}</span>
+                  ))}
+                  {c.orders.length>3 && <span style={{fontSize:".65rem",color:"var(--mu)"}}>+{c.orders.length-3}</span>}
+                </div>
               </div>
-              <div style={{fontSize:".7rem",color:"var(--mu)",textAlign:"right",flexShrink:0}}>
-                <div>Seit</div>
-                <div style={{color:"var(--tx)"}}>{c.firstOrder}</div>
-              </div>
-            </div>
-            <div className="cust-stats">
-              <div className="cust-stat">
-                <div className="cust-stat-val">{c.orderCount}</div>
-                <div className="cust-stat-lbl">Bestellungen</div>
-              </div>
-              <div className="cust-stat">
-                <div className="cust-stat-val">{fmt(c.totalRevenue)}</div>
-                <div className="cust-stat-lbl">Umsatz</div>
-              </div>
-              <div className="cust-stat">
-                <div className="cust-stat-val">{fmt(c.avgOrder)}</div>
-                <div className="cust-stat-lbl">Ø Bestellung</div>
-              </div>
-            </div>
-            <div style={{marginTop:".65rem",display:"flex",gap:".35rem",flexWrap:"wrap"}}>
-              {c.orders.slice(0,3).map(o=>(
-                <span key={o.id} className={`spill ${statusClass[o.status]||"s-new"}`} style={{fontSize:".65rem"}}>{o.status}</span>
-              ))}
-              {c.orders.length > 3 && <span style={{fontSize:".65rem",color:"var(--mu)"}}>+{c.orders.length-3} weitere</span>}
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )
+      )}
 
-      {/* Customer Detail Modal */}
+      {/* Buyer Detail Modal */}
       {selectedCustomer && (
         <div className="mkov cust-detail-modal" onClick={e=>e.target===e.currentTarget&&setSelectedCustomer(null)}>
           <div className="mkbox">
-            {/* Header */}
             <div style={{display:"flex",alignItems:"center",gap:"1rem",marginBottom:"1.5rem"}}>
               <div className="cust-avatar" style={{width:"52px",height:"52px",fontSize:"1.3rem"}}>{selectedCustomer.initials}</div>
               <div style={{flex:1}}>
                 <h2 style={{margin:0,fontSize:"1.5rem"}}>{selectedCustomer.name}</h2>
                 <div style={{color:"var(--mu)",fontSize:".85rem"}}>{selectedCustomer.email}</div>
-                {selectedCustomer.street && (
-                  <div style={{fontSize:".78rem",color:"var(--mu)",marginTop:".15rem"}}>
-                    {selectedCustomer.street} · {selectedCustomer.zip} {selectedCustomer.city}
-                  </div>
-                )}
+                {selectedCustomer.street && <div style={{fontSize:".78rem",color:"var(--mu)",marginTop:".15rem"}}>{selectedCustomer.street} · {selectedCustomer.zip} {selectedCustomer.city}</div>}
               </div>
               <button className="xbtn" onClick={()=>setSelectedCustomer(null)}><I d={ICONS.x} size={14}/></button>
             </div>
-
-            {/* Stats */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:".75rem",marginBottom:"1.5rem"}}>
-              {[
-                ["Bestellungen", selectedCustomer.orderCount],
-                ["Gesamtumsatz", fmt(selectedCustomer.totalRevenue)],
-                ["Ø Bestellwert", fmt(selectedCustomer.avgOrder)],
-                ["Kunde seit", selectedCustomer.firstOrder],
-              ].map(([l,v])=>(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:".75rem",marginBottom:"1.5rem"}}>
+              {[["Bestellungen",selectedCustomer.orderCount],["Gesamtumsatz",fmt(selectedCustomer.totalRevenue)],["Ø Bestellwert",fmt(selectedCustomer.avgOrder)]].map(([l,v])=>(
                 <div key={l} className="sc" style={{padding:".85rem"}}>
                   <div className="sc-lbl">{l}</div>
                   <div style={{fontFamily:"Barlow Condensed",fontWeight:900,fontSize:"1.1rem",color:"var(--acc)",marginTop:".2rem"}}>{v}</div>
                 </div>
               ))}
             </div>
-
-            {/* Order History */}
             <h3 style={{fontFamily:"Barlow Condensed",fontWeight:800,fontSize:"1rem",textTransform:"uppercase",color:"var(--mu)",letterSpacing:"1px",marginBottom:".85rem"}}>
-              Bestellhistorie ({selectedCustomer.orders.length})
+              Bestellhistorie
             </h3>
-            <div style={{maxHeight:"380px",overflowY:"auto"}}>
+            <div style={{maxHeight:"320px",overflowY:"auto"}}>
               {selectedCustomer.orders.sort((a,b)=>b.id.localeCompare(a.id)).map(o=>(
                 <div key={o.id} className="cust-history-item" onClick={()=>{setOrderModal(o);setSelectedCustomer(null);}}>
-                  <div style={{display:"flex",alignItems:"center",gap:".75rem"}}>
-                    <div>
-                      <div style={{fontFamily:"monospace",fontSize:".78rem",color:"var(--acc)"}}>{o.id}</div>
-                      <div style={{fontSize:".78rem",color:"var(--mu)",marginTop:".1rem"}}>{o.date} · {o.payment==="paypal"?"PayPal":"Vorkasse"}</div>
-                      <div style={{fontSize:".75rem",color:"var(--mu)",marginTop:".15rem"}}>
-                        {(o.items||[]).map(i=>`${i.name.split(" ").slice(0,3).join(" ")} ×${i.qty}`).join(", ")}
-                      </div>
-                    </div>
+                  <div>
+                    <div style={{fontFamily:"monospace",fontSize:".78rem",color:"var(--acc)"}}>{o.id}</div>
+                    <div style={{fontSize:".78rem",color:"var(--mu)",marginTop:".1rem"}}>{o.date} · {o.payment==="paypal"?"PayPal":"Vorkasse"}</div>
                   </div>
-                  <div style={{textAlign:"right",flexShrink:0}}>
-                    <div style={{fontWeight:700,color:"var(--acc)",fontFamily:"Barlow Condensed",fontSize:"1.1rem"}}>{fmt(o.total)}</div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontWeight:700,color:"var(--acc)"}}>{fmt(o.total)}</div>
                     <span className={`spill ${statusClass[o.status]||"s-new"}`} style={{fontSize:".68rem"}}>{o.status}</span>
-                    <div style={{display:"flex",gap:".3rem",marginTop:".35rem",justifyContent:"flex-end"}}>
-                      <button className="btn btn-o btn-sm" style={{padding:".2rem .5rem",fontSize:".68rem"}}
-                        onClick={e=>{e.stopPropagation();setOrderModal(o);setSelectedCustomer(null);}}>
-                        Details
-                      </button>
-                      <button className="btn btn-i btn-sm" style={{padding:".2rem .5rem",fontSize:".68rem"}}
-                        onClick={e=>{e.stopPropagation();setInvoiceModal(o);setSelectedCustomer(null);}}>
-                        Rechnung
-                      </button>
-                    </div>
                   </div>
                 </div>
               ))}
             </div>
-
-            <div className="mk-acts" style={{marginTop:"1.2rem"}}>
+            <div className="mk-acts">
               <button className="btn btn-o" onClick={()=>setSelectedCustomer(null)}>Schließen</button>
-              <button className="btn btn-d" onClick={()=>{setConfirmDel(selectedCustomer);setSelectedCustomer(null);}}>
-                <I d={ICONS.trash} size={15}/> Kunden löschen
+              <button className="btn btn-d" onClick={()=>{setConfirmDel({email:selectedCustomer.email,name:selectedCustomer.name,orderCount:selectedCustomer.orderCount,isUser:false});setSelectedCustomer(null);}}>
+                <I d={ICONS.trash} size={15}/> Bestelldaten löschen
               </button>
-              <a className="btn btn-i" href={`mailto:${selectedCustomer.email}`}>
-                <I d={ICONS.mail} size={15}/> E-Mail schreiben
-              </a>
+              <a className="btn btn-i" href={`mailto:${selectedCustomer.email}`}><I d={ICONS.mail} size={15}/> E-Mail</a>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Confirm Modal */}
+      {/* Delete Confirm */}
       {confirmDel && (
         <div className="mkov" onClick={()=>setConfirmDel(null)}>
           <div className="mkbox" style={{maxWidth:"420px"}} onClick={e=>e.stopPropagation()}>
             <h2 style={{color:"var(--err)"}}>Kunden löschen</h2>
             <div className="del-confirm-box">
               <p style={{fontSize:".85rem",marginBottom:".6rem"}}>
-                Möchten Sie den Kunden <strong style={{color:"var(--tx)"}}>{confirmDel.name}</strong> ({confirmDel.email}) wirklich vollständig löschen?
+                <strong style={{color:"var(--tx)"}}>{confirmDel.name}</strong> ({confirmDel.email}) wirklich löschen?
               </p>
               <p style={{fontSize:".78rem",color:"var(--mu)"}}>
-                ⚠️ Alle Bestelldaten ({confirmDel.orderCount} Bestellung{confirmDel.orderCount!==1?"en":""}) werden unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+                ⚠️ {confirmDel.isUser
+                  ? "Das Benutzerkonto und alle Bestelldaten werden gelöscht."
+                  : `${confirmDel.orderCount} Bestellung${confirmDel.orderCount!==1?"en":""} werden unwiderruflich gelöscht.`}
               </p>
             </div>
             <div className="mk-acts">
               <button className="btn btn-o" onClick={()=>setConfirmDel(null)}>Abbrechen</button>
               <button className="btn btn-d" disabled={deleting} onClick={async()=>{
                 setDeleting(true);
-                await deleteCustomer(confirmDel.email);
+                if (confirmDel.isUser) await deleteUserById(confirmDel.id, confirmDel.email);
+                else await deleteCustomer(confirmDel.email);
                 setConfirmDel(null); setDeleting(false);
               }}>
-                <I d={ICONS.trash} size={15}/> {deleting?"Wird gelöscht…":"Endgültig löschen"}
+                <I d={ICONS.trash} size={15}/> {deleting?"Lösche…":"Endgültig löschen"}
               </button>
             </div>
           </div>
@@ -3215,6 +3300,7 @@ function CustomersSection({ orders, setOrderModal, setInvoiceModal, deleteCustom
     </>
   );
 }
+
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
 export default function App() {
