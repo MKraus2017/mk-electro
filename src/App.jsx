@@ -1,0 +1,1660 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+const SK = { products: "mke_prod_v5", orders: "mke_ord_v3" };
+async function load(key, fb) {
+  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : fb; } catch { return fb; }
+}
+async function save(key, v) { try { await window.storage.set(key, JSON.stringify(v)); } catch {} }
+
+// ── Default Products ──────────────────────────────────────────────────────────
+// Lagerstand 29.05.2026 — externe Lagerliste aktualisiert
+// VK-Preise = inkl. Versandkosten (Hermes/DHL) · eBay-Gebühren einkalkuliert
+const DEFAULT_PRODUCTS = [
+  // ── BESTANDSARTIKEL (Lagerbestand + Preise korrigiert) ───────────────────
+  { id:1,  name:"Philips Series 1200 Kaffeevollautomat EP1220/00", category:"Kaffee & Küche",         price:239.00, ek:189.90, shipping:8.99, stock:4,  stockExternal:116, delivery:"2-4 Werktage", sku:"EP1220/00",     images:["https://images.unsplash.com/photo-1517668808822-9ebb02f2a0e6?w=600&q=80"], description:"Kaffeevollautomat mit OneTouch-Bedienung, 15 bar, 1500W, Keramik-Mahlwerk, Milchaufschäumer. Inkl. kostenlosem Versand." },
+  { id:2,  name:"Pioneer MVH-S320BT Autoradio Bluetooth",          category:"Autoradio & Navigation",  price:79.90,  ek:57.00,  shipping:5.49, stock:22, stockExternal:461, delivery:"1-3 Werktage", sku:"MVH-S320BT",   images:["https://images.unsplash.com/photo-1547394765-185e1e68f34e?w=600&q=80"], description:"1-DIN Bluetooth-Autoradio, USB, AUX, Freisprechanlage, MIXTRAX, Spotify. Inkl. kostenlosem Versand." },
+  { id:3,  name:"Braun Series 9 Pro+ 9565CC Rasierer",             category:"Rasieren & Pflege",       price:259.00, ek:209.00, shipping:6.99, stock:0,  stockExternal:334, delivery:"2-4 Werktage", sku:"9-9565CC-EU1", images:["https://images.unsplash.com/photo-1621605815971-5af68e5e0e60?w=600&q=80"], description:"Nass- & Trockenrasierer, 360° Flex-Kopf, 60 Min Akku, SmartCare Station. Inkl. kostenlosem Versand." },
+  { id:4,  name:"Philips Air Fryer Double Basket NA352/00",         category:"Kaffee & Küche",         price:149.00, ek:115.00, shipping:8.99, stock:6,  stockExternal:200, delivery:"3-5 Werktage", sku:"NA352/00",     images:["https://images.unsplash.com/photo-1626200419199-391ae4be7a41?w=600&q=80"], description:"6L/3L Doppelkorb Heißluftfritteuse, 2750W Touchscreen, S3000 Serie. Inkl. kostenlosem Versand." },
+  { id:5,  name:"Philips DST7511/80 Dampfbügeleisen 7500",         category:"Haushalt",               price:82.90,  ek:59.90,  shipping:6.99, stock:20, stockExternal:354, delivery:"1-3 Werktage", sku:"DST7511/80",  images:["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80"], description:"Profi-Dampfbügeleisen 7500 Series, 220g Dampfstoß, OptimalTEMP-Sohle, 2400W. Inkl. kostenlosem Versand." },
+  { id:6,  name:"Remington S8590 Keratin Therapy Haarglätter",     category:"Haarpflege",             price:39.90,  ek:23.00,  shipping:5.49, stock:35, stockExternal:1669,delivery:"1-2 Werktage", sku:"S8590",        images:["https://images.unsplash.com/photo-1522338242992-e1a54906a8da?w=600&q=80"], description:"Keramik-Haarglätter, Keratin Therapy, Hitzeschutzsensor, 5 Temperaturen, 230°C. Inkl. kostenlosem Versand." },
+  { id:7,  name:"Braun Silk·expert Pro 3 PL3122 IPL",              category:"Rasieren & Pflege",       price:259.00, ek:219.00, shipping:6.99, stock:0,  stockExternal:130, delivery:"2-4 Werktage", sku:"PL3122",       images:["https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=600&q=80"], description:"IPL Haarentfernung, 300.000 Lichtimpulse, SkinSafe Technologie, 3 Köpfe. Inkl. kostenlosem Versand." },
+  { id:8,  name:"Philips S9980/54 Rasierer SkinIQ",                category:"Rasieren & Pflege",       price:249.00, ek:199.00, shipping:6.99, stock:0,  stockExternal:140, delivery:"2-4 Werktage", sku:"S9980/54",    images:["https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=600&q=80"], description:"Premium Wet & Dry Rasierer, SkinIQ-Technologie, 5-fach Klingensystem. Inkl. kostenlosem Versand." },
+  // ── NEUE ARTIKEL (Lagerliste 29.05.2026, Marge nach Gebühren ≥ 25%) ─────
+  { id:9,  name:"Oral-B iO Series 2 Elektrische Zahnbürste",       category:"Zahnpflege",             price:44.90,  ek:29.90,  shipping:5.49, stock:0,  stockExternal:1184,delivery:"3-5 Werktage", sku:"IO2LABORATORY/BK", images:["https://images.unsplash.com/photo-1559757175-5700dde675bc?w=600&q=80"], description:"iO Magnettechnologie, 3 Reinigungsmodi, Andruckkontrolle, Reiseetui, USB-Ladestation. Inkl. kostenlosem Versand." },
+  { id:10, name:"Philips Sonicare 2100 HX3651 Zahnbürste",         category:"Zahnpflege",             price:32.90,  ek:19.90,  shipping:5.49, stock:0,  stockExternal:3650,delivery:"3-5 Werktage", sku:"HX3651/12",    images:["https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=600&q=80"], description:"Sonicare Schalltechnologie, 31.000 Bewegungen/Min, SmartTimer, USB-Ladekabel. Inkl. kostenlosem Versand." },
+  { id:11, name:"Philips Sonicare 3100 HX3673 Zahnbürste",         category:"Zahnpflege",             price:54.90,  ek:32.50,  shipping:5.49, stock:0,  stockExternal:600, delivery:"3-5 Werktage", sku:"HX3673/13",    images:["https://images.unsplash.com/photo-1606811841689-23dfddce3e95?w=600&q=80"], description:"Schallzahnbürste 3100 Series, Drucksensor, 2-Wochen-Akku, Andruckkontrolle. Inkl. kostenlosem Versand." },
+  { id:12, name:"Oral-B iO Series 4 Zahnbürste Magnetic",          category:"Zahnpflege",             price:94.90,  ek:59.00,  shipping:5.49, stock:0,  stockExternal:346, delivery:"3-5 Werktage", sku:"IO4MAGNETIC/BK",images:["https://images.unsplash.com/photo-1607613009820-a29f7bb81c04?w=600&q=80"], description:"iO Magnettechnologie, 4 Reinigungsmodi, farbiges Display, Andruckkontrolle, Reiseetui. Inkl. kostenlosem Versand." },
+  { id:13, name:"Braun Silk-épil 5-620 Epilierer Wet & Dry",       category:"Rasieren & Pflege",       price:69.90,  ek:39.90,  shipping:6.99, stock:0,  stockExternal:989, delivery:"3-5 Werktage", sku:"SES5-620",     images:["https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&q=80"], description:"Wet & Dry Epilierer, 40 Pinzetten, 3 Zubehörteile, Rasieraufsatz, 30 Min Akku. Inkl. kostenlosem Versand." },
+  { id:14, name:"Braun Silk-épil 9 SES9-000 Epilierer SensoSmart", category:"Rasieren & Pflege",       price:119.00, ek:75.00,  shipping:6.99, stock:0,  stockExternal:251, delivery:"3-5 Werktage", sku:"SES9-000",     images:["https://images.unsplash.com/photo-1620756236308-65c3ef5d25f3?w=600&q=80"], description:"Premium Wet & Dry Epilierer, SensoSmart-Technologie, 40 Pinzetten, Massage-Aufsatz. Inkl. kostenlosem Versand." },
+  { id:15, name:"Pioneer MVH-230BT Autoradio Bluetooth",            category:"Autoradio & Navigation",  price:79.90,  ek:49.90,  shipping:5.49, stock:0,  stockExternal:460, delivery:"3-5 Werktage", sku:"MVH-230BT",   images:["https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&q=80"], description:"1-DIN Mediareceiver, Bluetooth Audio & Freisprechen, USB, RDS Tuner, 4×50W MOSFET. Inkl. kostenlosem Versand." },
+  { id:16, name:"Philips S5885/50 Rasierer SkinIQ 360°",           category:"Rasieren & Pflege",       price:134.90, ek:89.90,  shipping:6.99, stock:0,  stockExternal:300, delivery:"3-5 Werktage", sku:"S5885/50",    images:["https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=600&q=80"], description:"SkinIQ 360° Nass & Trocken, 90.000 Schnitte/Min, Smart Cleaning System, 60 Min Akku. Inkl. kostenlosem Versand." },
+  { id:17, name:"Philips Ironing Center PSG7130/20",                category:"Haushalt",               price:219.00, ek:159.00, shipping:8.99, stock:0,  stockExternal:123, delivery:"3-5 Werktage", sku:"PSG7130/20",  images:["https://images.unsplash.com/photo-1626785774573-4b799315345d?w=600&q=80"], description:"Dampfbügelstation 7000 Series, 8 bar, 160g Dampfstoß, OptimalTemp-Sohle, 1,5 L Tank. Inkl. kostenlosem Versand." },
+];
+
+const genId = () => "MKE-" + Date.now().toString(36).toUpperCase();
+const fmt = (n) => Number(n).toFixed(2).replace(".", ",") + " €";
+const fmtDate = () => new Date().toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit", year:"numeric" });
+
+// Echte Nettomarge nach eBay (10.75% + 0.35€) und Versand
+function calcMargin(price, ek, shipping) {
+  const p = parseFloat(price)||0, e = parseFloat(ek)||0, s = parseFloat(shipping)||0;
+  if (!p || !e) return null;
+  const ebay = p * 0.1075 + 0.35;
+  const netto = p - ebay - s - e;
+  return { netto: Math.round(netto*100)/100, pct: Math.round(netto/e*1000)/10, ebay: Math.round(ebay*100)/100 };
+}
+
+// ── Icon system ───────────────────────────────────────────────────────────────
+const I = ({ d, size=18, sw=1.75, fill="none" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}>
+    {[].concat(d).map((p,i)=><path key={i} d={p}/>)}
+  </svg>
+);
+const ICONS = {
+  cart:   "M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4zM3 6h18M16 10a4 4 0 01-8 0",
+  plus:   "M12 5v14M5 12h14",
+  minus:  "M5 12h14",
+  trash:  "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6",
+  edit:   "M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z",
+  shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+  truck:  "M1 3h15v13H1zM16 8h4l3 3v5h-7V8zM5.5 19a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM18.5 19a1.5 1.5 0 100-3 1.5 1.5 0 000 3z",
+  check:  "M20 6L9 17l-5-5",
+  x:      "M18 6L6 18M6 6l12 12",
+  search: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
+  home:   "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z",
+  box:    "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z",
+  orders: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2",
+  upload: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12",
+  image:  "M21 19V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2zM8.5 10a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM21 15l-5-5L5 21",
+  mail:   "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6",
+  invoice:"M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  star:   "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
+  eye:    "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 15a3 3 0 100-6 3 3 0 000 6z",
+  chev:   "M9 18l6-6-6-6",
+  tag:    "M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82zM7 7h.01",
+  print:  "M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z",
+  link:   "M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71",
+  phone:  "M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .93h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z",
+  mappin: "M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 13a3 3 0 100-6 3 3 0 000 6z",
+  doc:    "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  scale:  "M12 3v18M3 9l4-4 4 4M17 9l4-4-4-4M3 15l4 4 4-4M17 15l4 4-4 4",
+  send:   "M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z",
+  user:   "M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z",
+};
+
+// ── CSS ───────────────────────────────────────────────────────────────────────
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@300;400;500;600&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07090d;--sf:#0f1218;--sf2:#161b23;--sf3:#1e2530;
+  --acc:#e8a020;--acc2:#e03010;--tx:#eef1f6;--mu:#6e7d96;
+  --br:#232c3a;--ok:#22c55e;--err:#ef4444;--inf:#3b82f6;--r:8px;
+}
+body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
+button,input,select,textarea{font-family:inherit;border:none;outline:none}
+button{cursor:pointer} img{max-width:100%} a{color:inherit;text-decoration:none}
+.app{display:flex;flex-direction:column;min-height:100vh}
+
+/* NAV */
+.nav{background:var(--sf);border-bottom:1px solid var(--br);padding:0 1.8rem;display:flex;align-items:center;gap:1.2rem;height:58px;position:sticky;top:0;z-index:100;box-shadow:0 2px 20px rgba(0,0,0,.45)}
+.logo{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:1.5rem;letter-spacing:.5px;display:flex;align-items:baseline;gap:.2rem}
+.logo em{color:var(--acc);font-style:normal}
+.logo small{font-size:.6rem;color:var(--mu);font-weight:400;margin-left:.3rem}
+.nav-links{display:flex;gap:.15rem;margin-left:auto}
+.nb{background:none;color:var(--mu);padding:.38rem .8rem;border-radius:var(--r);font-size:.85rem;font-weight:500;display:flex;align-items:center;gap:.38rem;transition:all .18s}
+.nb:hover,.nb.on{background:var(--sf2);color:var(--tx)}
+.cart-btn{background:var(--acc);color:#000;padding:.38rem .95rem;border-radius:var(--r);font-weight:700;font-size:.85rem;display:flex;align-items:center;gap:.38rem}
+.cart-btn:hover{background:#d09010}
+.badge{background:var(--acc2);color:#fff;font-size:.65rem;font-weight:700;border-radius:99px;padding:.08rem .36rem;min-width:15px;text-align:center}
+
+/* HERO */
+.hero{background:linear-gradient(150deg,#050709 0%,#160d00 55%,#050709 100%);padding:4rem 2rem;text-align:center;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 65% 45% at 50% 110%,rgba(232,160,32,.16),transparent)}
+.hero::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(232,160,32,.35),transparent)}
+.hero-tag{display:inline-flex;align-items:center;gap:.45rem;background:rgba(232,160,32,.1);color:var(--acc);border:1px solid rgba(232,160,32,.22);padding:.28rem .9rem;border-radius:99px;font-size:.72rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:1.1rem}
+.hero h1{font-family:'Barlow Condensed',sans-serif;font-size:clamp(2.5rem,6vw,4.5rem);font-weight:900;line-height:1.03;margin-bottom:.85rem;text-transform:uppercase}
+.hero h1 em{color:var(--acc);font-style:normal}
+.hero p{color:var(--mu);font-size:.97rem;max-width:480px;margin:0 auto 1.7rem;line-height:1.6}
+.hero-btns{display:flex;gap:.8rem;justify-content:center;flex-wrap:wrap}
+
+/* BUTTONS */
+.btn{padding:.55rem 1.3rem;border-radius:var(--r);font-weight:600;font-size:.9rem;display:inline-flex;align-items:center;gap:.42rem;cursor:pointer;transition:all .18s;border:none}
+.btn-p{background:var(--acc);color:#000}.btn-p:hover{background:#d09010;transform:translateY(-1px)}
+.btn-o{background:transparent;color:var(--tx);border:1px solid var(--br)}.btn-o:hover{border-color:var(--acc);color:var(--acc)}
+.btn-d{background:var(--err);color:#fff}.btn-d:hover{background:#c53030}
+.btn-ok{background:var(--ok);color:#fff}.btn-ok:hover{background:#16a34a}
+.btn-i{background:var(--inf);color:#fff}.btn-i:hover{background:#2563eb}
+.btn-sm{padding:.32rem .72rem;font-size:.78rem}
+
+/* FILTERS */
+.filters{padding:1.1rem 1.8rem;display:flex;gap:.8rem;flex-wrap:wrap;align-items:center;background:var(--sf);border-bottom:1px solid var(--br)}
+.sw{position:relative;flex:1;min-width:180px;max-width:300px}
+.sw svg{position:absolute;left:.7rem;top:50%;transform:translateY(-50%);color:var(--mu);pointer-events:none}
+.si{width:100%;background:var(--sf2);border:1px solid var(--br);color:var(--tx);padding:.48rem .85rem .48rem 2.2rem;border-radius:var(--r);font-size:.86rem}
+.si:focus{border-color:var(--acc)}
+.chips{display:flex;gap:.35rem;flex-wrap:wrap}
+.chip{padding:.3rem .75rem;border-radius:99px;font-size:.78rem;font-weight:600;border:1px solid var(--br);background:none;color:var(--mu);transition:all .18s}
+.chip:hover{border-color:var(--acc);color:var(--acc)}.chip.on{background:var(--acc);color:#000;border-color:var(--acc)}
+
+/* PRODUCT GRID */
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:1.3rem;padding:1.6rem 1.8rem}
+.pcard{background:var(--sf);border:1px solid var(--br);border-radius:12px;overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s;display:flex;flex-direction:column}
+.pcard:hover{transform:translateY(-4px);box-shadow:0 14px 45px rgba(0,0,0,.55);border-color:rgba(232,160,32,.22)}
+.pcard-img-wrap{position:relative;width:100%;height:190px;overflow:hidden;background:var(--sf2)}
+.pcard-img{width:100%;height:100%;object-fit:cover;transition:transform .3s}
+.pcard:hover .pcard-img{transform:scale(1.04)}
+.img-count{position:absolute;bottom:.5rem;right:.5rem;background:rgba(0,0,0,.65);color:#fff;border-radius:4px;font-size:.68rem;font-weight:700;padding:.15rem .4rem;display:flex;align-items:center;gap:.25rem}
+.pcard-body{padding:.9rem;flex:1;display:flex;flex-direction:column;gap:.4rem}
+.pcat{font-size:.68rem;font-weight:700;color:var(--acc);text-transform:uppercase;letter-spacing:1px}
+.pname{font-family:'Barlow Condensed',sans-serif;font-size:1.08rem;font-weight:700;line-height:1.2}
+.psku{font-size:.68rem;color:var(--mu);font-family:monospace}
+.pdesc{font-size:.78rem;color:var(--mu);line-height:1.5;flex:1}
+.pfoot{display:flex;align-items:center;justify-content:space-between;margin-top:.65rem;padding-top:.65rem;border-top:1px solid var(--br)}
+.pprice{font-family:'Barlow Condensed',sans-serif;font-size:1.4rem;font-weight:900;color:var(--acc)}
+.sbadge{font-size:.68rem;font-weight:600;padding:.18rem .45rem;border-radius:4px}
+.sok{background:rgba(34,197,94,.14);color:var(--ok)}.slow{background:rgba(232,160,32,.14);color:var(--acc)}.sout{background:rgba(239,68,68,.14);color:var(--err)}
+.dliv{font-size:.7rem;color:var(--mu);display:flex;align-items:center;gap:.28rem}
+
+/* IMAGE GALLERY DOTS */
+.img-dots{display:flex;gap:.3rem;justify-content:center;padding:.4rem;background:var(--sf2)}
+.img-dot{width:6px;height:6px;border-radius:50%;background:var(--br);transition:background .2s;cursor:pointer;border:none}
+.img-dot.on{background:var(--acc)}
+
+/* CART */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:199;backdrop-filter:blur(4px)}
+.cart-sb{position:fixed;right:0;top:0;bottom:0;width:min(420px,95vw);background:var(--sf);z-index:200;display:flex;flex-direction:column;box-shadow:-8px 0 50px rgba(0,0,0,.6)}
+.sb-hdr{padding:1rem 1.3rem;border-bottom:1px solid var(--br);display:flex;align-items:center;justify-content:space-between}
+.sb-hdr h2{font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:900;text-transform:uppercase}
+.xbtn{background:var(--sf2);border:1px solid var(--br);color:var(--mu);width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s}
+.xbtn:hover{color:var(--tx)}
+.cart-items{flex:1;overflow-y:auto;padding:.85rem}
+.citem{display:flex;gap:.65rem;padding:.65rem;background:var(--sf2);border-radius:8px;margin-bottom:.65rem}
+.citem img{width:56px;height:56px;border-radius:6px;object-fit:cover;flex-shrink:0}
+.cinfo{flex:1;min-width:0}
+.cname{font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cprice{font-size:.78rem;color:var(--acc);font-weight:700;margin-top:.12rem}
+.qc{display:flex;align-items:center;gap:.3rem;margin-top:.38rem}
+.qb{background:var(--sf3);border:1px solid var(--br);color:var(--tx);width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s}
+.qb:hover{background:var(--acc);color:#000}.qn{font-size:.8rem;font-weight:700;min-width:16px;text-align:center}
+.cart-ft{padding:1rem 1.3rem;border-top:1px solid var(--br)}
+.ctotal{display:flex;justify-content:space-between;align-items:center;margin-bottom:.85rem}
+.ctotal span:first-child{color:var(--mu);font-size:.86rem}
+.ctotal span:last-child{font-family:'Barlow Condensed',sans-serif;font-size:1.5rem;font-weight:900;color:var(--acc)}
+
+/* CHECKOUT */
+.chk-ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:300;padding:1rem}
+.chk-box{background:var(--sf);border:1px solid var(--br);border-radius:16px;width:min(550px,100%);max-height:90vh;overflow-y:auto;padding:1.7rem}
+.chk-box h2{font-family:'Barlow Condensed',sans-serif;font-size:1.65rem;font-weight:900;margin-bottom:1.3rem}
+.fg{margin-bottom:.85rem}
+.fg label{display:block;font-size:.75rem;font-weight:700;color:var(--mu);margin-bottom:.32rem;text-transform:uppercase;letter-spacing:.5px}
+.fi{width:100%;background:var(--sf2);border:1px solid var(--br);color:var(--tx);padding:.58rem .82rem;border-radius:var(--r);font-size:.86rem}
+.fi:focus{border-color:var(--acc)} .fi.err{border-color:var(--err)!important}
+.fr{display:grid;grid-template-columns:1fr 1fr;gap:.85rem}
+.pay-opts{display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-top:.45rem}
+.popt{border:2px solid var(--br);border-radius:10px;padding:.75rem;cursor:pointer;text-align:center;transition:all .2s;background:var(--sf2)}
+.popt:hover{border-color:var(--acc)}.popt.on{border-color:var(--acc);background:rgba(232,160,32,.09)}
+.popt-lbl{font-weight:700;font-size:.86rem;margin-top:.32rem}.popt-sub{font-size:.7rem;color:var(--mu)}
+.pp-logo{font-weight:900;font-size:1rem;color:#003087}.pp-logo span{color:#009cde}
+.sec-ttl{font-family:'Barlow Condensed',sans-serif;font-size:.95rem;font-weight:800;text-transform:uppercase;color:var(--mu);letter-spacing:1px;margin-bottom:.6rem;margin-top:1.2rem}
+.ord-sum{background:var(--sf2);border-radius:10px;padding:.85rem;margin-top:.75rem}
+.srow{display:flex;justify-content:space-between;font-size:.83rem;padding:.18rem 0}
+.stotal{font-family:'Barlow Condensed',sans-serif;font-size:1.2rem;font-weight:900;color:var(--acc);border-top:1px solid var(--br);margin-top:.45rem;padding-top:.45rem}
+.chk-acts{display:flex;gap:.65rem;margin-top:1.3rem}
+
+/* SUCCESS */
+.succ-scr{text-align:center;padding:1.8rem 1rem}
+.succ-ic{width:56px;height:56px;background:rgba(34,197,94,.18);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1.2rem;color:var(--ok)}
+.succ-scr h2{font-family:'Barlow Condensed',sans-serif;font-size:1.8rem;font-weight:900;margin-bottom:.65rem}
+.ord-id{background:var(--sf2);border:1px solid var(--br);border-radius:8px;padding:.6rem 1rem;margin:1rem auto;font-family:monospace;font-size:.85rem;color:var(--acc);display:inline-block}
+.bank-box{background:var(--sf2);border:1px solid var(--br);border-radius:8px;padding:.85rem;margin:1rem 0;text-align:left}
+.bank-box p{font-size:.78rem;margin:.18rem 0}
+.bank-box strong{color:var(--tx)}.bank-box span{color:var(--mu)}
+
+/* TRUST / FOOTER */
+.trust{background:var(--sf);border-top:1px solid var(--br);padding:1.2rem 1.8rem;display:flex;justify-content:center;gap:2.2rem;flex-wrap:wrap}
+.ti{display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--mu)}
+.ti svg{color:var(--acc)}
+footer{background:var(--sf);border-top:1px solid var(--br)}
+.footer-main{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:2rem;padding:2rem 1.8rem}
+.footer-col h4{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:1rem;text-transform:uppercase;letter-spacing:1px;color:var(--tx);margin-bottom:.8rem}
+.footer-col p,.footer-col a{font-size:.8rem;color:var(--mu);line-height:1.8;display:block}
+.footer-col a:hover{color:var(--acc)}
+.footer-bottom{border-top:1px solid var(--br);padding:.9rem 1.8rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem}
+.footer-bottom span{font-size:.75rem;color:var(--mu)}
+.footer-bottom-links{display:flex;gap:1.2rem}
+.footer-bottom-links button{background:none;border:none;color:var(--mu);font-size:.75rem;cursor:pointer;transition:color .15s}
+.footer-bottom-links button:hover{color:var(--acc)}
+
+/* LEGAL / CONTACT PAGES */
+.page-wrap{max-width:860px;margin:0 auto;padding:2.5rem 1.8rem}
+.page-hero{background:linear-gradient(150deg,#050709 0%,#0d0800 60%,#050709 100%);padding:3rem 1.8rem;position:relative;overflow:hidden;border-bottom:1px solid var(--br)}
+.page-hero::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(232,160,32,.3),transparent)}
+.page-hero-inner{max-width:860px;margin:0 auto}
+.page-hero-tag{display:inline-flex;align-items:center;gap:.4rem;background:rgba(232,160,32,.1);color:var(--acc);border:1px solid rgba(232,160,32,.2);padding:.22rem .75rem;border-radius:99px;font-size:.7rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:.8rem}
+.page-hero h1{font-family:'Barlow Condensed',sans-serif;font-size:clamp(1.9rem,4vw,3rem);font-weight:900;text-transform:uppercase;line-height:1.05}
+.page-hero p{color:var(--mu);font-size:.9rem;margin-top:.5rem}
+
+/* LEGAL TEXT */
+.legal-section{margin-bottom:2rem;padding-bottom:2rem;border-bottom:1px solid var(--br)}
+.legal-section:last-child{border-bottom:none}
+.legal-section h2{font-family:'Barlow Condensed',sans-serif;font-size:1.25rem;font-weight:800;text-transform:uppercase;color:var(--acc);letter-spacing:.5px;margin-bottom:.7rem;display:flex;align-items:center;gap:.5rem}
+.legal-section h3{font-size:.95rem;font-weight:700;color:var(--tx);margin:.8rem 0 .35rem}
+.legal-section p{font-size:.85rem;color:var(--mu);line-height:1.75;margin-bottom:.5rem}
+.legal-section ul{padding-left:1.2rem;margin:.4rem 0 .6rem}
+.legal-section ul li{font-size:.85rem;color:var(--mu);line-height:1.75;margin-bottom:.2rem}
+.legal-section a{color:var(--acc);text-decoration:underline}
+.legal-highlight{background:var(--sf2);border:1px solid var(--br);border-radius:8px;padding:1rem 1.2rem;margin:.8rem 0}
+.legal-highlight p{margin:0}
+
+/* IMPRESSUM CONTACT CARD */
+.imp-card{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;display:grid;grid-template-columns:auto 1fr;gap:1rem;align-items:start}
+.imp-card-icon{width:42px;height:42px;background:rgba(232,160,32,.12);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--acc);flex-shrink:0}
+.imp-card h3{font-size:.85rem;font-weight:700;color:var(--tx);margin-bottom:.35rem}
+.imp-card p{font-size:.82rem;color:var(--mu);line-height:1.7;margin:0}
+.imp-card a{color:var(--acc)}
+
+/* CONTACT FORM */
+.contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start}
+@media(max-width:640px){.contact-grid{grid-template-columns:1fr}}
+.contact-info-card{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:1.5rem}
+.contact-info-card h3{font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:800;text-transform:uppercase;margin-bottom:1rem;color:var(--tx)}
+.cinfo-row{display:flex;align-items:flex-start;gap:.75rem;margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid var(--br)}
+.cinfo-row:last-child{border:none;margin:0;padding:0}
+.cinfo-icon{width:34px;height:34px;background:rgba(232,160,32,.1);border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--acc);flex-shrink:0}
+.cinfo-row h4{font-size:.78rem;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.15rem}
+.cinfo-row p,.cinfo-row a{font-size:.84rem;color:var(--tx);line-height:1.5}
+.cinfo-row a{color:var(--acc)}
+.contact-form-card{background:var(--sf);border:1px solid var(--br);border-radius:12px;padding:1.5rem}
+.contact-form-card h3{font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:800;text-transform:uppercase;margin-bottom:1rem;color:var(--tx)}
+.form-sent{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:1.5rem;text-align:center}
+.form-sent h3{font-family:'Barlow Condensed',sans-serif;font-size:1.3rem;font-weight:900;color:var(--ok);margin:.8rem 0 .5rem}
+.form-sent p{font-size:.84rem;color:var(--mu)}
+.subject-chips{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem}
+.subject-chip{padding:.3rem .7rem;border-radius:99px;font-size:.76rem;font-weight:600;border:1px solid var(--br);background:none;color:var(--mu);cursor:pointer;transition:all .18s}
+.subject-chip:hover,.subject-chip.on{background:rgba(232,160,32,.1);border-color:var(--acc);color:var(--acc)}
+
+
+/* ── BACKEND ─────────────────────────────────────────────────────────── */
+.be-wrap{display:flex;min-height:calc(100vh - 58px)}
+.be-side{width:205px;background:var(--sf);border-right:1px solid var(--br);padding:1.1rem 0;flex-shrink:0}
+.be-side-ttl{font-size:.65rem;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:1.5px;padding:.4rem 1.2rem;margin-bottom:.2rem}
+.bni{display:flex;align-items:center;gap:.5rem;padding:.58rem 1.2rem;font-size:.86rem;font-weight:500;color:var(--mu);cursor:pointer;transition:all .15s;border-left:3px solid transparent}
+.bni:hover{background:var(--sf2);color:var(--tx)}.bni.on{background:rgba(232,160,32,.07);color:var(--acc);border-left-color:var(--acc)}
+.be-ct{flex:1;padding:1.7rem;overflow:auto}
+.be-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.7rem}
+.be-ttl{font-family:'Barlow Condensed',sans-serif;font-size:1.85rem;font-weight:900;text-transform:uppercase}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:.9rem;margin-bottom:1.7rem}
+.sc{background:var(--sf);border:1px solid var(--br);border-radius:10px;padding:1rem}
+.sc-lbl{font-size:.72rem;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.32rem}
+.sc-val{font-family:'Barlow Condensed',sans-serif;font-size:1.8rem;font-weight:900;color:var(--acc)}
+.sc-sub{font-size:.72rem;color:var(--mu);margin-top:.12rem}
+.tbl-wrap{background:var(--sf);border:1px solid var(--br);border-radius:12px;overflow:hidden}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{background:var(--sf2);padding:.65rem .9rem;text-align:left;font-size:.7rem;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--br)}
+.tbl td{padding:.75rem .9rem;border-bottom:1px solid var(--br);font-size:.84rem;vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}.tbl tr:hover td{background:var(--sf2)}
+.thumb{width:36px;height:36px;border-radius:6px;object-fit:cover}
+.acts{display:flex;gap:.4rem;flex-wrap:wrap}
+.spill{padding:.2rem .55rem;border-radius:99px;font-size:.68rem;font-weight:700}
+.s-new{background:rgba(232,160,32,.14);color:var(--acc)}
+.s-paid{background:rgba(34,197,94,.14);color:var(--ok)}
+.s-ship{background:rgba(59,130,246,.14);color:var(--inf)}
+.s-canc{background:rgba(239,68,68,.14);color:var(--err)}
+.mgchip{background:rgba(34,197,94,.12);color:var(--ok);border-radius:4px;padding:.08rem .38rem;font-size:.68rem;font-weight:700;margin-left:.38rem}
+
+/* MODAL */
+.mkov{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:400;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(4px)}
+.mkbox{background:var(--sf);border:1px solid var(--br);border-radius:16px;width:min(660px,100%);max-height:92vh;overflow-y:auto;padding:1.7rem}
+.mkbox h2{font-family:'Barlow Condensed',sans-serif;font-size:1.55rem;font-weight:900;margin-bottom:1.3rem}
+.mk-acts{display:flex;gap:.65rem;margin-top:1.3rem;justify-content:flex-end}
+
+/* IMAGE UPLOAD */
+.img-upload-area{border:2px dashed var(--br);border-radius:10px;padding:1.5rem;text-align:center;cursor:pointer;transition:all .2s;position:relative;background:var(--sf2)}
+.img-upload-area:hover,.img-upload-area.drag{border-color:var(--acc);background:rgba(232,160,32,.05)}
+.img-upload-area input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.img-upload-txt{color:var(--mu);font-size:.83rem;margin-top:.5rem}
+.img-upload-txt strong{color:var(--acc)}
+.img-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:.6rem;margin-top:.8rem}
+.img-item{position:relative;border-radius:8px;overflow:hidden;border:2px solid var(--br);aspect-ratio:1;background:var(--sf3)}
+.img-item img{width:100%;height:100%;object-fit:cover}
+.img-item.primary{border-color:var(--acc)}
+.img-item-actions{position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;gap:.4rem;opacity:0;transition:opacity .2s}
+.img-item:hover .img-item-actions{opacity:1}
+.img-primary-badge{position:absolute;top:.28rem;left:.28rem;background:var(--acc);color:#000;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:3px}
+.img-count-badge{position:absolute;bottom:.28rem;right:.28rem;background:rgba(0,0,0,.7);color:#fff;font-size:.6rem;font-weight:700;padding:.1rem .35rem;border-radius:3px}
+
+/* ORDER DETAIL + INVOICE */
+.od-sec{margin-bottom:1.3rem}
+.od-sec h3{font-family:'Barlow Condensed',sans-serif;font-size:.98rem;font-weight:800;color:var(--mu);text-transform:uppercase;margin-bottom:.6rem}
+.od-grid{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}
+.od-f label{font-size:.68rem;color:var(--mu);text-transform:uppercase;letter-spacing:.5px}
+.od-f p{font-size:.86rem;font-weight:500;margin-top:.1rem}
+.od-items{background:var(--sf2);border-radius:8px;padding:.85rem}
+.od-item{display:flex;justify-content:space-between;font-size:.83rem;padding:.28rem 0;border-bottom:1px solid var(--br)}
+.od-item:last-child{border:none}
+.od-total{display:flex;justify-content:space-between;font-family:'Barlow Condensed',sans-serif;font-size:1.18rem;font-weight:900;color:var(--acc);margin-top:.6rem;padding-top:.6rem;border-top:1px solid var(--br)}
+select.fi{appearance:auto}
+
+/* INVOICE PREVIEW */
+.inv-preview{background:#fff;color:#111;border-radius:10px;padding:2rem;font-size:.82rem;line-height:1.6;font-family:'Barlow',sans-serif}
+.inv-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:2px solid #e8a020}
+.inv-company{font-family:'Barlow Condensed',sans-serif}
+.inv-company h2{font-size:1.6rem;font-weight:900;color:#e8a020;margin-bottom:.2rem}
+.inv-company p{font-size:.75rem;color:#555}
+.inv-meta{text-align:right;font-size:.75rem;color:#555}
+.inv-meta strong{display:block;font-size:1rem;color:#111;font-family:'Barlow Condensed',sans-serif;font-weight:900}
+.inv-addrs{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.4rem}
+.inv-addr h4{font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:.3rem}
+.inv-addr p{font-size:.82rem;color:#222}
+.inv-tbl{width:100%;border-collapse:collapse;margin-bottom:1.2rem}
+.inv-tbl th{background:#f5f5f5;padding:.5rem .7rem;text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:#666;border-bottom:2px solid #e8a020}
+.inv-tbl td{padding:.45rem .7rem;border-bottom:1px solid #eee;font-size:.8rem}
+.inv-tbl tfoot td{border-top:2px solid #e8a020;font-weight:700;font-size:.88rem}
+.inv-footer{margin-top:1.2rem;padding-top:1rem;border-top:1px solid #eee;font-size:.72rem;color:#888;text-align:center}
+.inv-bank{background:#fffbf2;border:1px solid #e8a020;border-radius:6px;padding:.7rem;margin:.8rem 0;font-size:.75rem}
+.inv-bank strong{color:#e8a020}
+.mail-sent{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:.7rem 1rem;display:flex;align-items:center;gap:.6rem;font-size:.83rem;color:var(--ok);margin-top:.8rem}
+
+/* STOCK DISPLAY */
+.stock-row{display:flex;flex-direction:column;gap:.28rem;margin-top:.3rem}
+.stock-line{display:flex;align-items:center;gap:.38rem;font-size:.72rem;font-weight:600}
+.stock-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.sd-green{background:#22c55e}
+.sd-orange{background:#f97316}
+.sd-gray{background:#4b5563}
+.ext-badge{display:inline-flex;align-items:center;gap:.28rem;background:rgba(249,115,22,.12);color:#f97316;border:1px solid rgba(249,115,22,.28);border-radius:4px;padding:.12rem .45rem;font-size:.68rem;font-weight:700;white-space:nowrap}
+.ext-tag{display:inline-flex;align-items:center;gap:.22rem;background:rgba(249,115,22,.1);color:#f97316;border-radius:3px;padding:.08rem .32rem;font-size:.65rem;font-weight:700}
+
+/* STOCK FORM GRID */
+.stock-form-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem}
+.stock-preview{background:var(--sf2);border:1px solid var(--br);border-radius:8px;padding:.7rem .9rem;margin-top:.5rem;display:flex;flex-direction:column;gap:.32rem}
+.stock-preview-ttl{font-size:.7rem;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.1rem}
+`;
+
+
+// ── Image Upload Component ─────────────────────────────────────────────────────
+function ImageUpload({ images = [], onChange }) {
+  const [drag, setDrag] = useState(false);
+  const fileRef = useRef();
+
+  const toBase64 = (file) => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+
+  const handleFiles = useCallback(async (files) => {
+    const newImgs = [];
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith("image/")) continue;
+      // Resize to max 800px wide via canvas
+      const bmp = await createImageBitmap(f);
+      const canvas = document.createElement("canvas");
+      const maxW = 800;
+      const scale = Math.min(1, maxW / bmp.width);
+      canvas.width = Math.round(bmp.width * scale);
+      canvas.height = Math.round(bmp.height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const b64 = canvas.toDataURL("image/jpeg", 0.82);
+      newImgs.push(b64);
+    }
+    onChange([...images, ...newImgs]);
+  }, [images, onChange]);
+
+  const onDrop = (e) => {
+    e.preventDefault(); setDrag(false);
+    handleFiles(e.dataTransfer.files);
+  };
+  const setPrimary = (i) => { const a = [...images]; [a[0], a[i]] = [a[i], a[0]]; onChange(a); };
+  const remove = (i) => onChange(images.filter((_, idx) => idx !== i));
+
+  return (
+    <div>
+      <div className={`img-upload-area${drag ? " drag" : ""}`}
+        onDragOver={e => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={onDrop}
+      >
+        <input type="file" accept="image/*" multiple onChange={e => handleFiles(e.target.files)} ref={fileRef} />
+        <I d={ICONS.upload} size={28} />
+        <div className="img-upload-txt">
+          <strong>Klicken oder Bilder hier hinziehen</strong><br />
+          Einzel- & Mehrfachauswahl möglich · JPG, PNG, WEBP
+        </div>
+      </div>
+
+      {images.length > 0 && (
+        <div className="img-gallery">
+          {images.map((src, i) => (
+            <div key={i} className={`img-item${i === 0 ? " primary" : ""}`}>
+              <img src={src} alt="" />
+              {i === 0 && <div className="img-primary-badge">Hauptbild</div>}
+              <div className="img-item-actions">
+                {i !== 0 && (
+                  <button className="btn btn-sm btn-p" style={{padding:".2rem .45rem",fontSize:".65rem"}} onClick={() => setPrimary(i)}>
+                    <I d={ICONS.star} size={11} /> Haupt
+                  </button>
+                )}
+                <button className="btn btn-sm btn-d" style={{padding:".2rem .45rem",fontSize:".65rem"}} onClick={() => remove(i)}>
+                  <I d={ICONS.trash} size={11} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {images.length > 0 && (
+        <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".5rem"}}>
+          {images.length} Bild{images.length!==1?"er":""} · Erstes Bild = Hauptbild im Shop
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Stock info helper (shared between card + backend) ─────────────────────────
+function stockInfo(p) {
+  const local = Math.max(0, parseInt(p.stock) || 0);
+  const ext   = Math.max(0, parseInt(p.stockExternal) || 0);
+  const total = local + ext;
+  const hasLocal = local > 0;
+  const hasExt   = ext > 0;
+  // Delivery strings: add 1-2 days for external-only
+  const addDays = (str, n) => {
+    return str.replace(/(\d+)-(\d+)/, (_, a, b) => `${+a+n}-${+b+n}`)
+              .replace(/^(\d+)(?! )/, (_, a) => `${+a+n}`);
+  };
+  const localDelivery = p.delivery || "1-3 Werktage";
+  const extDelivery   = addDays(localDelivery, 2);
+  return { local, ext, total, hasLocal, hasExt, localDelivery, extDelivery };
+}
+
+// ── Product Card with image carousel ─────────────────────────────────────────
+function ProductCard({ p, onAddToCart }) {
+  const [imgIdx, setImgIdx] = useState(0);
+  const imgs = p.images || [p.image].filter(Boolean);
+  const { local, ext, total, hasLocal, hasExt, localDelivery, extDelivery } = stockInfo(p);
+
+  return (
+    <div className="pcard">
+      <div className="pcard-img-wrap">
+        <img className="pcard-img" src={imgs[imgIdx] || "https://placehold.co/600x380/161b23/6e7d96?text=Kein+Bild"} alt={p.name}
+          onError={e => e.target.src = "https://placehold.co/600x380/161b23/6e7d96?text=Kein+Bild"} />
+        {imgs.length > 1 && (
+          <>
+            <div className="img-count"><I d={ICONS.image} size={10} />{imgs.length}</div>
+            <button onClick={e=>{e.stopPropagation();setImgIdx((imgIdx-1+imgs.length)%imgs.length)}} style={{position:"absolute",left:".3rem",top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,.55)",border:"none",color:"#fff",width:"24px",height:"24px",borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",rotate:"180deg"}}>
+              <I d={ICONS.chev} size={13} />
+            </button>
+            <button onClick={e=>{e.stopPropagation();setImgIdx((imgIdx+1)%imgs.length)}} style={{position:"absolute",right:".3rem",top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,.55)",border:"none",color:"#fff",width:"24px",height:"24px",borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <I d={ICONS.chev} size={13} />
+            </button>
+          </>
+        )}
+      </div>
+      {imgs.length > 1 && (
+        <div className="img-dots">
+          {imgs.map((_, i) => <button key={i} className={`img-dot${i===imgIdx?" on":""}`} onClick={()=>setImgIdx(i)} />)}
+        </div>
+      )}
+      <div className="pcard-body">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div className="pcat">{p.category}</div>
+          {p.sku && <div className="psku">#{p.sku}</div>}
+        </div>
+        <div className="pname">{p.name}</div>
+        <div className="pdesc">{p.description}</div>
+
+        {/* Stock + delivery display */}
+        <div className="stock-row">
+          {hasLocal && (
+            <div className="stock-line">
+              <span className="stock-dot sd-green"/>
+              <span style={{color:"var(--ok)"}}>
+                {local > 8 ? "Sofort verfügbar" : `Noch ${local} Stk. auf Lager`}
+              </span>
+              <span style={{color:"var(--mu)",marginLeft:"auto"}}>
+                <I d={ICONS.truck} size={11}/> {localDelivery}
+              </span>
+            </div>
+          )}
+          {hasExt && (
+            <div className="stock-line">
+              <span className="stock-dot sd-orange"/>
+              <span style={{color:"#f97316"}}>
+                {ext} Stk. im <span className="ext-tag">Außenlager</span>
+              </span>
+              <span style={{color:"var(--mu)",marginLeft:"auto"}}>
+                <I d={ICONS.truck} size={11}/> {extDelivery}
+              </span>
+            </div>
+          )}
+          {!hasLocal && !hasExt && (
+            <div className="stock-line">
+              <span className="stock-dot sd-gray"/>
+              <span style={{color:"var(--mu)"}}>Nicht verfügbar</span>
+            </div>
+          )}
+        </div>
+
+        <div className="pfoot">
+          <div className="pprice">{fmt(p.price)}</div>
+          <button className="btn btn-p btn-sm" onClick={() => onAddToCart(p)}
+            disabled={total===0} style={{opacity:total===0?.4:1}}>
+            In den Warenkorb
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Invoice Generator ─────────────────────────────────────────────────────────
+function generateInvoiceHTML(order, invoiceNr) {
+  const mwst = 19;
+  const netto = order.total / (1 + mwst/100);
+  const mwstBetrag = order.total - netto;
+  const itemsHtml = (order.items || []).map(i => `
+    <tr>
+      <td>${i.name}</td>
+      <td style="text-align:center">${i.qty}</td>
+      <td style="text-align:right">${fmt(i.price)}</td>
+      <td style="text-align:right">${fmt(i.price * i.qty)}</td>
+    </tr>
+  `).join("");
+  const paymentNote = order.payment === "vorkasse"
+    ? `<div class="inv-bank"><strong>Bitte überweisen Sie auf:</strong><br>Kontoinhaber: MK-Electro GmbH · IBAN: DE89 3704 0044 0532 0130 00 · BIC: COBADEFFXXX<br>Verwendungszweck: ${order.id}</div>`
+    : `<p style="font-size:.75rem;color:#555">Zahlung per PayPal – Betrag bereits autorisiert.</p>`;
+  return `
+    <div class="inv-preview" id="invoice-${order.id}">
+      <div class="inv-hdr">
+        <div class="inv-company">
+          <h2>MK·ELECTRO</h2>
+          <p>mk-electro.com · Musterstraße 1 · 10115 Berlin<br>Tel: +49 30 12345678 · info@mk-electro.com<br>USt-ID: DE123456789 · HRB 12345 Berlin</p>
+        </div>
+        <div class="inv-meta">
+          <strong>RECHNUNG</strong>
+          Rechnungsnr.: ${invoiceNr}<br>
+          Bestellnr.: ${order.id}<br>
+          Datum: ${order.date}<br>
+          Zahlungsart: ${order.payment === "paypal" ? "PayPal" : "Vorkasse"}
+        </div>
+      </div>
+      <div class="inv-addrs">
+        <div class="inv-addr"><h4>Rechnungsadresse</h4><p>${order.customer?.name}<br>${order.customer?.street}<br>${order.customer?.zip} ${order.customer?.city}</p></div>
+        <div class="inv-addr"><h4>Absender</h4><p>MK-Electro GmbH<br>Musterstraße 1<br>10115 Berlin</p></div>
+      </div>
+      <table class="inv-tbl">
+        <thead><tr><th>Artikel</th><th style="text-align:center">Menge</th><th style="text-align:right">Einzelpreis</th><th style="text-align:right">Gesamt</th></tr></thead>
+        <tbody>${itemsHtml}</tbody>
+        <tfoot>
+          <tr><td colspan="3">Netto</td><td style="text-align:right">${fmt(netto)}</td></tr>
+          <tr><td colspan="3">MwSt. ${mwst}%</td><td style="text-align:right">${fmt(mwstBetrag)}</td></tr>
+          <tr style="font-size:1rem"><td colspan="3"><strong>Gesamtbetrag (inkl. MwSt.)</strong></td><td style="text-align:right;color:#e8a020"><strong>${fmt(order.total)}</strong></td></tr>
+        </tfoot>
+      </table>
+      ${paymentNote}
+      <div class="inv-footer">Vielen Dank für Ihren Einkauf! · MK-Electro GmbH · Musterstraße 1 · 10115 Berlin<br>Kein Ausweis der Steuer, da Kleinunternehmerregelung nach §19 UStG – oder USt-ID: DE123456789</div>
+    </div>
+  `;
+}
+
+// ── Invoice Modal ─────────────────────────────────────────────────────────────
+function InvoiceModal({ order, onClose }) {
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const invoiceNr = "RE-" + order.id.replace("MKE-","") + "-1";
+  const html = generateInvoiceHTML(order, invoiceNr);
+
+  const handlePrint = () => {
+    const win = window.open("", "_blank");
+    win.document.write(`<!DOCTYPE html><html><head><title>Rechnung ${invoiceNr}</title>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@300;400;500;600&display=swap');
+        body{font-family:'Barlow',sans-serif;background:#fff;margin:0;padding:2rem}
+        .inv-preview{max-width:800px;margin:0 auto}
+        .inv-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:2px solid #e8a020}
+        .inv-company h2{font-family:'Barlow Condensed',sans-serif;font-size:1.6rem;font-weight:900;color:#e8a020;margin-bottom:.2rem}
+        .inv-company p,.inv-meta{font-size:.75rem;color:#555}
+        .inv-meta{text-align:right} .inv-meta strong{display:block;font-size:1rem;color:#111;font-family:'Barlow Condensed',sans-serif;font-weight:900}
+        .inv-addrs{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.4rem}
+        .inv-addr h4{font-size:.7rem;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:.3rem}
+        .inv-addr p{font-size:.82rem;color:#222}
+        .inv-tbl{width:100%;border-collapse:collapse;margin-bottom:1.2rem}
+        .inv-tbl th{background:#f5f5f5;padding:.5rem .7rem;text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:#666;border-bottom:2px solid #e8a020}
+        .inv-tbl td{padding:.45rem .7rem;border-bottom:1px solid #eee;font-size:.8rem}
+        .inv-tbl tfoot td{border-top:2px solid #e8a020;font-weight:700;font-size:.88rem}
+        .inv-footer{margin-top:1.2rem;padding-top:1rem;border-top:1px solid #eee;font-size:.72rem;color:#888;text-align:center}
+        .inv-bank{background:#fffbf2;border:1px solid #e8a020;border-radius:6px;padding:.7rem;margin:.8rem 0;font-size:.75rem}
+        .inv-bank strong{color:#e8a020}
+      </style>
+    </head><body>${html}</body></html>`);
+    win.document.close();
+    setTimeout(() => { win.focus(); win.print(); }, 400);
+  };
+
+  const handleSendMail = async () => {
+    setSending(true);
+    // Simulate API call (in production: connect to email API)
+    await new Promise(r => setTimeout(r, 1800));
+    setSending(false);
+    setSent(true);
+  };
+
+  return (
+    <div className="mkov" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="mkbox" style={{maxWidth:"min(750px,100%)"}}>
+        <h2><I d={ICONS.invoice} size={20}/> Rechnung · {invoiceNr}</h2>
+
+        {/* Preview */}
+        <div style={{maxHeight:"420px",overflowY:"auto",border:"1px solid var(--br)",borderRadius:"8px",marginBottom:"1rem"}}>
+          <div dangerouslySetInnerHTML={{__html: html}} />
+        </div>
+
+        {/* Customer email info */}
+        <div style={{background:"var(--sf2)",border:"1px solid var(--br)",borderRadius:"8px",padding:".75rem 1rem",fontSize:".83rem",marginBottom:".8rem",display:"flex",gap:".6rem",alignItems:"center"}}>
+          <I d={ICONS.mail} size={16} />
+          <span>Empfänger: <strong>{order.customer?.name}</strong> &lt;{order.customer?.email}&gt;</span>
+        </div>
+
+        {sent && (
+          <div className="mail-sent">
+            <I d={ICONS.check} size={18}/> Rechnung wurde erfolgreich an <strong>{order.customer?.email}</strong> versendet. (Demo-Modus)
+          </div>
+        )}
+
+        <div className="mk-acts" style={{flexWrap:"wrap"}}>
+          <button className="btn btn-o" onClick={onClose}>Schließen</button>
+          <button className="btn btn-o" onClick={handlePrint}>
+            <I d={ICONS.print} size={15}/> Drucken / PDF
+          </button>
+          <button className="btn btn-i" onClick={handleSendMail} disabled={sending || sent} style={{opacity:sent?.6:1}}>
+            <I d={sent ? ICONS.check : ICONS.mail} size={15}/>
+            {sending ? "Sende…" : sent ? "Gesendet" : "Per E-Mail senden"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Order Detail Modal ────────────────────────────────────────────────────────
+function OrderModal({ order, onClose, onStatusChange, onOpenInvoice }) {
+  const [status, setStatus] = useState(order.status);
+  const save = () => { onStatusChange(order.id, status); onClose(); };
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+  return (
+    <div className="mkov" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="mkbox" style={{maxWidth:"min(680px,100%)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"1.3rem"}}>
+          <h2 style={{margin:0}}>Bestellung {order.id}</h2>
+          <span className={`spill ${statusClass[order.status]||"s-new"}`}>{order.status}</span>
+        </div>
+
+        <div className="od-sec">
+          <h3>Kundendaten</h3>
+          <div className="od-grid">
+            {[["Name",order.customer?.name],["E-Mail",order.customer?.email],["Adresse",`${order.customer?.street}, ${order.customer?.zip} ${order.customer?.city}`],["Zahlung",order.payment==="paypal"?"PayPal":"Vorkasse"],["Datum",order.date]].map(([l,v])=>(
+              <div key={l} className="od-f"><label>{l}</label><p>{v||"—"}</p></div>
+            ))}
+          </div>
+        </div>
+
+        <div className="od-sec">
+          <h3>Bestellte Artikel</h3>
+          <div className="od-items">
+            {(order.items||[]).map(i=>(
+              <div key={i.id} className="od-item">
+                <span>{i.name} ×{i.qty}</span>
+                <span style={{color:"var(--acc)",fontWeight:700}}>{fmt(i.price*i.qty)}</span>
+              </div>
+            ))}
+            <div className="od-total"><span>Gesamtbetrag</span><span>{fmt(order.total)}</span></div>
+          </div>
+        </div>
+
+        <div className="od-sec">
+          <h3>Status ändern</h3>
+          <select className="fi" value={status} onChange={e=>setStatus(e.target.value)}>
+            {["Neu","Bezahlt","Versendet","Storniert"].map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <div className="mk-acts" style={{flexWrap:"wrap"}}>
+          <button className="btn btn-o" onClick={onClose}>Schließen</button>
+          <button className="btn btn-i" onClick={onOpenInvoice}>
+            <I d={ICONS.invoice} size={15}/> Rechnung anzeigen & senden
+          </button>
+          <button className="btn btn-ok" onClick={save}>
+            <I d={ICONS.check} size={15}/> Status speichern
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Product Form Modal ────────────────────────────────────────────────────────
+function ProductModal({ product, onSave, onClose }) {
+  const def = { name:"", category:"", price:"", ek:"", shipping:"", stock:"", stockExternal:"", delivery:"", sku:"", images:[], description:"", id:null };
+  const init = {...def, ...product, images: product.images || (product.image ? [product.image] : []) };
+  const [form, setForm] = useState(init);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const submit = () => {
+    if (!form.name || !form.price) return alert("Name und VK-Preis sind Pflichtfelder.");
+    onSave({ ...form, price:parseFloat(form.price)||0, ek:parseFloat(form.ek)||0, shipping:parseFloat(form.shipping)||0, stock:parseInt(form.stock)||0, stockExternal:parseInt(form.stockExternal)||0 });
+  };
+
+  return (
+    <div className="mkov" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="mkbox">
+        <h2>{form.id?"Produkt bearbeiten":"Neues Produkt"}</h2>
+        <div className="fg"><label>Produktname *</label><input className="fi" value={form.name} onChange={e=>set("name",e.target.value)} placeholder="z.B. Pioneer MVH-S420BT" /></div>
+        <div className="fr">
+          <div className="fg"><label>Kategorie</label><input className="fi" value={form.category} onChange={e=>set("category",e.target.value)} placeholder="z.B. Autoradio" /></div>
+          <div className="fg"><label>SKU / Modellnr.</label><input className="fi" value={form.sku} onChange={e=>set("sku",e.target.value)} placeholder="z.B. MVH-S420BT" /></div>
+        </div>
+        <div className="fr">
+          <div className="fg"><label>Einkaufspreis EK (€)</label><input className="fi" type="number" step="0.01" value={form.ek} onChange={e=>set("ek",e.target.value)} placeholder="0.00" /></div>
+          <div className="fg"><label>Versandkosten (€)</label><input className="fi" type="number" step="0.01" value={form.shipping||""} onChange={e=>set("shipping",e.target.value)} placeholder="z.B. 5.49" /><div style={{fontSize:".68rem",color:"var(--mu)",marginTop:".2rem"}}>Hermes S 5,49 · M 6,99 · L 8,99</div></div>
+          <div className="fg"><label>VK inkl. Versand (€) *</label><input className="fi" type="number" step="0.01" value={form.price} onChange={e=>set("price",e.target.value)} placeholder="0.00" /><div style={{fontSize:".68rem",color:"var(--mu)",marginTop:".2rem"}}>= Preis den Käufer zahlt</div></div>
+        </div>
+        {/* Margin live display */}
+        {(() => {
+          const m = calcMargin(form.price, form.ek, form.shipping);
+          if (!m) return null;
+          const color = m.pct >= 25 ? "var(--ok)" : m.pct >= 15 ? "var(--acc)" : "var(--err)";
+          const label = m.pct >= 25 ? "🟢 Gut" : m.pct >= 15 ? "🟡 OK" : "🔴 Zu gering";
+          return (
+            <div style={{background:"var(--sf2)",border:"1px solid var(--br)",borderRadius:"8px",padding:".65rem 1rem",marginBottom:".7rem",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:".5rem",fontSize:".78rem"}}>
+              <div><div style={{color:"var(--mu)",fontSize:".68rem",marginBottom:".15rem"}}>Netto-Gewinn/Stk.</div><div style={{fontWeight:700,color,fontSize:"1rem"}}>{fmt(m.netto)}</div></div>
+              <div><div style={{color:"var(--mu)",fontSize:".68rem",marginBottom:".15rem"}}>Marge (nach Gebühren)</div><div style={{fontWeight:700,color}}>{m.pct}% {label}</div></div>
+              <div><div style={{color:"var(--mu)",fontSize:".68rem",marginBottom:".15rem"}}>eBay-Gebühr</div><div style={{fontWeight:600,color:"var(--mu)"}}>{fmt(m.ebay)}</div></div>
+              <div><div style={{color:"var(--mu)",fontSize:".68rem",marginBottom:".15rem"}}>Versandkosten</div><div style={{fontWeight:600,color:"var(--mu)"}}>{fmt(form.shipping||0)}</div></div>
+            </div>
+          );
+        })()}
+        {/* Stock section */}
+        <div className="fg" style={{marginBottom:".4rem"}}>
+          <label>Lagerbestand</label>
+          <div className="stock-form-grid">
+            <div>
+              <div style={{fontSize:".72rem",color:"var(--ok)",fontWeight:700,marginBottom:".28rem",display:"flex",alignItems:"center",gap:".3rem"}}>
+                <span style={{width:"7px",height:"7px",borderRadius:"50%",background:"#22c55e",display:"inline-block"}}/>
+                Eigenes Lager
+              </div>
+              <input className="fi" type="number" min="0" value={form.stock}
+                onChange={e=>set("stock",e.target.value)} placeholder="0" />
+            </div>
+            <div>
+              <div style={{fontSize:".72rem",color:"#f97316",fontWeight:700,marginBottom:".28rem",display:"flex",alignItems:"center",gap:".3rem"}}>
+                <span style={{width:"7px",height:"7px",borderRadius:"50%",background:"#f97316",display:"inline-block"}}/>
+                Außenlager (Händler)
+              </div>
+              <input className="fi" type="number" min="0" value={form.stockExternal||""}
+                onChange={e=>set("stockExternal",e.target.value)} placeholder="0" />
+            </div>
+            <div>
+              <div style={{fontSize:".72rem",color:"var(--mu)",fontWeight:700,marginBottom:".28rem"}}>
+                Gesamt
+              </div>
+              <div className="fi" style={{background:"var(--sf3)",display:"flex",alignItems:"center",fontWeight:700,color:"var(--tx)"}}>
+                {(parseInt(form.stock)||0) + (parseInt(form.stockExternal)||0)} Stk.
+              </div>
+            </div>
+          </div>
+          {/* Live preview */}
+          {((parseInt(form.stock)||0) + (parseInt(form.stockExternal)||0)) > 0 && (
+            <div className="stock-preview">
+              <div className="stock-preview-ttl">Vorschau im Shop</div>
+              {(parseInt(form.stock)||0) > 0 && (
+                <div className="stock-line">
+                  <span className="stock-dot sd-green"/>
+                  <span style={{color:"var(--ok)",fontSize:".78rem"}}>
+                    {(parseInt(form.stock)||0) > 8 ? "Sofort verfügbar" : `Noch ${parseInt(form.stock)} Stk. auf Lager`}
+                  </span>
+                  <span style={{color:"var(--mu)",marginLeft:"auto",fontSize:".72rem"}}>
+                    {form.delivery||"1-3 Werktage"}
+                  </span>
+                </div>
+              )}
+              {(parseInt(form.stockExternal)||0) > 0 && (
+                <div className="stock-line">
+                  <span className="stock-dot sd-orange"/>
+                  <span style={{color:"#f97316",fontSize:".78rem"}}>
+                    {parseInt(form.stockExternal)} Stk. im <span className="ext-tag">Außenlager</span>
+                  </span>
+                  <span style={{color:"var(--mu)",marginLeft:"auto",fontSize:".72rem"}}>
+                    {(form.delivery||"1-3 Werktage").replace(/(\d+)-(\d+)/, (_,a,b)=>`${+a+2}-${+b+2}`).replace(/^(\d+)(?!\d)/,(_,a)=>`${+a+2}`)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="fg"><label>Lieferzeit (eigenes Lager)</label><input className="fi" value={form.delivery} onChange={e=>set("delivery",e.target.value)} placeholder="1-3 Werktage" /><div style={{fontSize:".7rem",color:"var(--mu)",marginTop:".3rem"}}>Außenlager erhält automatisch +2 Tage</div></div>
+        <div className="fg">
+          <label>Produktbilder (Einzel- & Mehrfachauswahl)</label>
+          <ImageUpload images={form.images} onChange={imgs=>set("images",imgs)} />
+        </div>
+        <div className="fg"><label>Beschreibung</label><textarea className="fi" rows={3} value={form.description} onChange={e=>set("description",e.target.value)} placeholder="Kurze Produktbeschreibung…" style={{resize:"vertical"}} /></div>
+        <div className="mk-acts">
+          <button className="btn btn-o" onClick={onClose}>Abbrechen</button>
+          <button className="btn btn-p" onClick={submit}>Speichern</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── CHECKOUT ──────────────────────────────────────────────────────────────────
+function Checkout({ cart, cartTotal, onClose, onOrder }) {
+  const [payment, setPayment] = useState("paypal");
+  const [c, setC] = useState({name:"",email:"",street:"",zip:"",city:""});
+  const [err, setErr] = useState({});
+  const sc = (k,v) => setC(x=>({...x,[k]:v}));
+  const validate = () => {
+    const e={};
+    if(!c.name.trim())e.name=1; if(!c.email.includes("@"))e.email=1;
+    if(!c.street.trim())e.street=1; if(!c.zip.trim())e.zip=1; if(!c.city.trim())e.city=1;
+    setErr(e); return !Object.keys(e).length;
+  };
+  return (
+    <>
+      <div className="ov" onClick={onClose}/>
+      <div className="chk-ov">
+        <div className="chk-box">
+          <h2>Kasse</h2>
+          <div className="sec-ttl">Ihre Daten</div>
+          <div className="fg"><label>Vor- & Nachname</label><input className={`fi${err.name?" err":""}`} placeholder="Max Mustermann" value={c.name} onChange={e=>sc("name",e.target.value)}/></div>
+          <div className="fg"><label>E-Mail</label><input className={`fi${err.email?" err":""}`} type="email" placeholder="max@beispiel.de" value={c.email} onChange={e=>sc("email",e.target.value)}/></div>
+          <div className="fg"><label>Straße & Hausnummer</label><input className={`fi${err.street?" err":""}`} placeholder="Musterstraße 12" value={c.street} onChange={e=>sc("street",e.target.value)}/></div>
+          <div className="fr">
+            <div className="fg"><label>PLZ</label><input className={`fi${err.zip?" err":""}`} placeholder="12345" value={c.zip} onChange={e=>sc("zip",e.target.value)}/></div>
+            <div className="fg"><label>Stadt</label><input className={`fi${err.city?" err":""}`} placeholder="Berlin" value={c.city} onChange={e=>sc("city",e.target.value)}/></div>
+          </div>
+          <div className="sec-ttl">Zahlungsart</div>
+          <div className="pay-opts">
+            <div className={`popt${payment==="paypal"?" on":""}`} onClick={()=>setPayment("paypal")}>
+              <div className="pp-logo">Pay<span>Pal</span></div>
+              <div className="popt-lbl">PayPal</div><div className="popt-sub">Schnell & sicher</div>
+            </div>
+            <div className={`popt${payment==="vorkasse"?" on":""}`} onClick={()=>setPayment("vorkasse")}>
+              <div style={{fontSize:"1.1rem"}}>🏦</div>
+              <div className="popt-lbl">Vorkasse</div><div className="popt-sub">Banküberweisung</div>
+            </div>
+          </div>
+          <div className="sec-ttl">Bestellübersicht</div>
+          <div className="ord-sum">
+            {cart.map(i=><div key={i.id} className="srow"><span>{i.name.split(" ").slice(0,4).join(" ")} ×{i.qty}</span><span>{fmt(i.price*i.qty)}</span></div>)}
+            <div className="srow stotal"><span>Gesamt inkl. MwSt.</span><span>{fmt(cartTotal)}</span></div>
+          </div>
+          <div className="chk-acts">
+            <button className="btn btn-o" onClick={onClose}>Abbrechen</button>
+            <button className="btn btn-p" onClick={()=>{ if(validate()) onOrder({payment,customer:c}); }}>
+              {payment==="paypal"?"Weiter zu PayPal →":"Kostenpflichtig bestellen →"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── CONTACT PAGE ──────────────────────────────────────────────────────────────
+function ContactPage({ setView }) {
+  const [form, setForm] = useState({ name:"", email:"", phone:"", subject:"Allgemeine Anfrage", message:"" });
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [errors, setErrors] = useState({});
+  const subjects = ["Allgemeine Anfrage","Bestellung / Lieferung","Reklamation / Garantie","Rückgabe / Widerruf","Produktfrage","Sonstiges"];
+  const sf = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const validate = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = 1;
+    if (!form.email.includes("@")) e.email = 1;
+    if (!form.message.trim() || form.message.length < 10) e.message = 1;
+    setErrors(e); return !Object.keys(e).length;
+  };
+
+  const submit = async () => {
+    if (!validate()) return;
+    setSending(true);
+    await new Promise(r => setTimeout(r, 1400));
+    setSending(false); setSent(true);
+  };
+
+  return (
+    <>
+      <div className="page-hero">
+        <div className="page-hero-inner">
+          <div className="page-hero-tag"><I d={ICONS.mail} size={12}/> Kontakt</div>
+          <h1>So erreichen<br/>Sie uns</h1>
+          <p>Wir helfen Ihnen gerne weiter – per E-Mail, Telefon oder Kontaktformular.</p>
+        </div>
+      </div>
+      <div className="page-wrap">
+        <div className="contact-grid">
+          {/* Info */}
+          <div className="contact-info-card">
+            <h3>Kontaktdaten</h3>
+            <div className="cinfo-row">
+              <div className="cinfo-icon"><I d={ICONS.user} size={16}/></div>
+              <div><h4>Inhaber</h4><p>Andreas Kraus</p></div>
+            </div>
+            <div className="cinfo-row">
+              <div className="cinfo-icon"><I d={ICONS.mappin} size={16}/></div>
+              <div><h4>Adresse</h4><p>Von-Drais-Straße 3a<br/>68775 Ketsch</p></div>
+            </div>
+            <div className="cinfo-row">
+              <div className="cinfo-icon"><I d={ICONS.mail} size={16}/></div>
+              <div><h4>E-Mail</h4><a href="mailto:info@mk-electro.com">info@mk-electro.com</a></div>
+            </div>
+            <div className="cinfo-row">
+              <div className="cinfo-icon"><I d={ICONS.phone} size={16}/></div>
+              <div><h4>Telefon</h4><p>+49 (0) 6202 · 123456</p></div>
+            </div>
+            <div className="cinfo-row">
+              <div className="cinfo-icon"><I d={ICONS.truck} size={16}/></div>
+              <div><h4>Öffnungszeiten</h4><p>Mo – Fr: 9:00 – 17:00 Uhr<br/>Sa – So: geschlossen</p></div>
+            </div>
+            <div style={{marginTop:"1.2rem",padding:"1rem",background:"var(--sf2)",borderRadius:"8px",fontSize:".8rem",color:"var(--mu)",lineHeight:1.6}}>
+              <strong style={{color:"var(--tx)"}}>Antwortzeit:</strong> Wir antworten in der Regel innerhalb von 24 Stunden an Werktagen.
+            </div>
+          </div>
+
+          {/* Form */}
+          <div className="contact-form-card">
+            <h3>Nachricht senden</h3>
+            {sent ? (
+              <div className="form-sent">
+                <I d={ICONS.check} size={32}/>
+                <h3>Nachricht gesendet!</h3>
+                <p>Vielen Dank, {form.name}. Wir melden uns baldmöglichst bei Ihnen unter <strong style={{color:"var(--tx)"}}>{form.email}</strong>.</p>
+                <button className="btn btn-p btn-sm" style={{marginTop:"1rem"}} onClick={()=>{setSent(false);setForm({name:"",email:"",phone:"",subject:"Allgemeine Anfrage",message:""});}}>
+                  Neue Anfrage
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="fg"><label>Ihr Name *</label><input className={`fi${errors.name?" err":""}`} placeholder="Max Mustermann" value={form.name} onChange={e=>sf("name",e.target.value)}/></div>
+                <div className="fg"><label>E-Mail-Adresse *</label><input className={`fi${errors.email?" err":""}`} type="email" placeholder="max@beispiel.de" value={form.email} onChange={e=>sf("email",e.target.value)}/></div>
+                <div className="fg"><label>Telefon (optional)</label><input className="fi" type="tel" placeholder="+49 …" value={form.phone} onChange={e=>sf("phone",e.target.value)}/></div>
+                <div className="fg">
+                  <label>Betreff</label>
+                  <div className="subject-chips">
+                    {subjects.map(s=><button key={s} className={`subject-chip${form.subject===s?" on":""}`} onClick={()=>sf("subject",s)}>{s}</button>)}
+                  </div>
+                </div>
+                <div className="fg">
+                  <label>Ihre Nachricht *</label>
+                  <textarea className={`fi${errors.message?" err":""}`} rows={5} placeholder="Wie können wir Ihnen helfen?" value={form.message} onChange={e=>sf("message",e.target.value)} style={{resize:"vertical"}}/>
+                  <div style={{fontSize:".7rem",color:"var(--mu)",marginTop:".25rem"}}>{form.message.length} Zeichen (min. 10)</div>
+                </div>
+                <div style={{fontSize:".72rem",color:"var(--mu)",marginBottom:".8rem",lineHeight:1.6}}>
+                  Mit dem Absenden stimmen Sie der Verarbeitung Ihrer Daten gemäß unserer <button onClick={()=>setView("datenschutz")} style={{background:"none",border:"none",color:"var(--acc)",cursor:"pointer",fontSize:"inherit",padding:0,textDecoration:"underline"}}>Datenschutzerklärung</button> zu.
+                </div>
+                <button className="btn btn-p" style={{width:"100%"}} onClick={submit} disabled={sending}>
+                  <I d={ICONS.send} size={15}/> {sending ? "Wird gesendet…" : "Nachricht absenden"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── IMPRESSUM PAGE ────────────────────────────────────────────────────────────
+function ImpressumPage() {
+  return (
+    <>
+      <div className="page-hero">
+        <div className="page-hero-inner">
+          <div className="page-hero-tag"><I d={ICONS.doc} size={12}/> Rechtliches</div>
+          <h1>Impressum</h1>
+          <p>Angaben gemäß § 5 TMG</p>
+        </div>
+      </div>
+      <div className="page-wrap">
+        <div className="imp-card">
+          <div className="imp-card-icon"><I d={ICONS.user} size={18}/></div>
+          <div>
+            <h3>Verantwortlich</h3>
+            <p><strong style={{color:"var(--tx)"}}>MK-Electro</strong><br/>
+            Inhaber: Andreas Kraus<br/>
+            Von-Drais-Straße 3a<br/>
+            68775 Ketsch</p>
+          </div>
+        </div>
+        <div className="imp-card">
+          <div className="imp-card-icon"><I d={ICONS.phone} size={18}/></div>
+          <div>
+            <h3>Kontakt</h3>
+            <p>Telefon: +49 (0) 6202 · 123456<br/>
+            E-Mail: <a href="mailto:info@mk-electro.com" style={{color:"var(--acc)"}}>info@mk-electro.com</a></p>
+          </div>
+        </div>
+        <div className="imp-card">
+          <div className="imp-card-icon"><I d={ICONS.doc} size={18}/></div>
+          <div>
+            <h3>Steuerliche Angaben</h3>
+            <p>Umsatzsteuer-Identifikationsnummer gemäß § 27a UStG:<br/>
+            <strong style={{color:"var(--tx)"}}>DE 123 456 789</strong></p>
+          </div>
+        </div>
+
+        <div className="legal-section">
+          <h2><I d={ICONS.scale} size={16}/> Streitschlichtung</h2>
+          <p>Die Europäische Kommission stellt eine Plattform zur Online-Streitbeilegung (OS) bereit: <a href="https://ec.europa.eu/consumers/odr" style={{color:"var(--acc)"}}>https://ec.europa.eu/consumers/odr</a></p>
+          <p>Unsere E-Mail-Adresse finden Sie oben im Impressum. Wir sind nicht bereit oder verpflichtet, an Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teilzunehmen.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2><I d={ICONS.doc} size={16}/> Haftung für Inhalte</h2>
+          <p>Als Diensteanbieter sind wir gemäß § 7 Abs. 1 TMG für eigene Inhalte auf diesen Seiten nach den allgemeinen Gesetzen verantwortlich. Nach §§ 8 bis 10 TMG sind wir als Diensteanbieter jedoch nicht verpflichtet, übermittelte oder gespeicherte fremde Informationen zu überwachen oder nach Umständen zu forschen, die auf eine rechtswidrige Tätigkeit hinweisen.</p>
+          <p>Verpflichtungen zur Entfernung oder Sperrung der Nutzung von Informationen nach den allgemeinen Gesetzen bleiben hiervon unberührt. Eine diesbezügliche Haftung ist jedoch erst ab dem Zeitpunkt der Kenntnis einer konkreten Rechtsverletzung möglich. Bei Bekanntwerden von entsprechenden Rechtsverletzungen werden wir diese Inhalte umgehend entfernen.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2><I d={ICONS.link} size={16}/> Haftung für Links</h2>
+          <p>Unser Angebot enthält Links zu externen Websites Dritter, auf deren Inhalte wir keinen Einfluss haben. Deshalb können wir für diese fremden Inhalte auch keine Gewähr übernehmen. Für die Inhalte der verlinkten Seiten ist stets der jeweilige Anbieter oder Betreiber der Seiten verantwortlich.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2><I d={ICONS.shield} size={16}/> Urheberrecht</h2>
+          <p>Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen dem deutschen Urheberrecht. Die Vervielfältigung, Bearbeitung, Verbreitung und jede Art der Verwertung außerhalb der Grenzen des Urheberrechtes bedürfen der schriftlichen Zustimmung des jeweiligen Autors bzw. Erstellers.</p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── AGB PAGE ──────────────────────────────────────────────────────────────────
+function AGBPage({ setView }) {
+  return (
+    <>
+      <div className="page-hero">
+        <div className="page-hero-inner">
+          <div className="page-hero-tag"><I d={ICONS.scale} size={12}/> Rechtliches</div>
+          <h1>Allgemeine Geschäftsbedingungen</h1>
+          <p>MK-Electro · Inh. Andreas Kraus · Stand: Januar 2026</p>
+        </div>
+      </div>
+      <div className="page-wrap">
+
+        <div className="legal-section">
+          <h2>§ 1 Geltungsbereich</h2>
+          <p>Diese Allgemeinen Geschäftsbedingungen (AGB) gelten für alle Verträge, die zwischen MK-Electro, Inh. Andreas Kraus, Von-Drais-Straße 3a, 68775 Ketsch (nachfolgend „Verkäufer") und dem Kunden (nachfolgend „Käufer") über den Online-Shop mk-electro.com geschlossen werden.</p>
+          <p>Abweichende, entgegenstehende oder ergänzende Allgemeine Geschäftsbedingungen des Käufers werden nicht Vertragsbestandteil, es sei denn, ihrer Geltung wird ausdrücklich zugestimmt.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 2 Vertragsschluss</h2>
+          <p>Die Produktdarstellungen im Online-Shop stellen kein rechtlich bindendes Angebot dar, sondern eine Aufforderung zur Abgabe eines Angebots (invitatio ad offerendum).</p>
+          <p>Durch Anklicken des Bestellbuttons gibt der Käufer ein verbindliches Angebot zum Kauf der im Warenkorb befindlichen Waren ab. Der Verkäufer bestätigt den Eingang der Bestellung unverzüglich per E-Mail (Eingangsbestätigung). Diese Eingangsbestätigung stellt noch keine Annahme des Angebots dar.</p>
+          <p>Ein Kaufvertrag kommt erst zustande, wenn der Verkäufer die Bestellung durch eine gesonderte E-Mail ausdrücklich annimmt oder die Ware versendet.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 3 Preise und Zahlung</h2>
+          <p>Alle angegebenen Preise sind Endpreise in Euro und enthalten die gesetzliche Umsatzsteuer (19 %). Versandkosten werden im Bestellprozess gesondert ausgewiesen.</p>
+          <h3>Zahlungsarten</h3>
+          <ul>
+            <li><strong>PayPal:</strong> Die Zahlung erfolgt über den Zahlungsdienstleister PayPal (Europe) S.à r.l. et Cie, S.C.A. Es gelten die AGB von PayPal.</li>
+            <li><strong>Vorkasse (Banküberweisung):</strong> Der Käufer überweist den Rechnungsbetrag nach Bestelleingang auf das im Bestellprozess angegebene Konto. Die Ware wird erst nach Zahlungseingang versendet. Zahlungsfrist: 7 Tage.</li>
+          </ul>
+          <p>Bei Zahlungsverzug ist der Verkäufer berechtigt, Verzugszinsen in gesetzlicher Höhe (§ 288 BGB) zu berechnen.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 4 Lieferung und Lieferzeiten</h2>
+          <p>Die Lieferung erfolgt an die vom Käufer angegebene Lieferadresse. Es gelten die im Produktangebot genannten Lieferzeiten. Diese beginnen, vorbehaltlich anderslautender Vereinbarungen, bei Vorkasse am Tag nach dem Zahlungseingang, bei anderen Zahlungsarten am Tag nach dem Vertragsschluss.</p>
+          <div className="legal-highlight">
+            <p><strong style={{color:"var(--tx)"}}>Außenlager:</strong> Artikel mit dem Hinweis „Außenlager" werden vom Händlerlager abgerufen. Die angegebene Lieferzeit verlängert sich für diese Artikel um bis zu 2 Werktage gegenüber der Standard-Lieferzeit.</p>
+          </div>
+          <p>Ist eine Lieferung an den Käufer nicht möglich, weil der gelieferte Artikel nicht durch seine Haustür passt oder der Käufer nicht angetroffen wird, trägt der Käufer die Kosten der Rücksendung.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 5 Eigentumsvorbehalt</h2>
+          <p>Die gelieferte Ware bleibt bis zur vollständigen Bezahlung Eigentum des Verkäufers.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 6 Widerrufsrecht</h2>
+          <div className="legal-highlight">
+            <p><strong style={{color:"var(--tx)"}}>Widerrufsrecht für Verbraucher:</strong> Verbrauchern steht ein gesetzliches Widerrufsrecht gemäß der nachfolgenden Widerrufsbelehrung zu.</p>
+          </div>
+          <h3>Widerrufsbelehrung</h3>
+          <p><strong style={{color:"var(--tx)"}}>Widerrufsrecht:</strong> Sie haben das Recht, binnen vierzehn Tagen ohne Angabe von Gründen diesen Vertrag zu widerrufen. Die Widerrufsfrist beträgt vierzehn Tage ab dem Tag, an dem Sie oder ein von Ihnen benannter Dritter, der nicht der Beförderer ist, die Waren in Besitz genommen haben bzw. hat.</p>
+          <p>Um Ihr Widerrufsrecht auszuüben, müssen Sie uns mittels einer eindeutigen Erklärung (z. B. ein mit der Post versandter Brief, Telefax oder E-Mail) über Ihren Entschluss, diesen Vertrag zu widerrufen, informieren:</p>
+          <div className="legal-highlight">
+            <p>MK-Electro · Inh. Andreas Kraus · Von-Drais-Straße 3a · 68775 Ketsch<br/>
+            E-Mail: info@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
+          </div>
+          <p>Zur Wahrung der Widerrufsfrist reicht es aus, dass Sie die Mitteilung über die Ausübung des Widerrufsrechts vor Ablauf der Widerrufsfrist absenden.</p>
+          <h3>Folgen des Widerrufs</h3>
+          <p>Wenn Sie diesen Vertrag widerrufen, haben wir Ihnen alle Zahlungen, die wir von Ihnen erhalten haben, einschließlich der Lieferkosten (mit Ausnahme der zusätzlichen Kosten, die sich daraus ergeben, dass Sie eine andere Art der Lieferung als die von uns angebotene, günstigste Standardlieferung gewählt haben), unverzüglich und spätestens binnen vierzehn Tagen ab dem Tag zurückzuzahlen, an dem die Mitteilung über Ihren Widerruf dieses Vertrags bei uns eingegangen ist.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 7 Gewährleistung und Garantie</h2>
+          <p>Es gelten die gesetzlichen Gewährleistungsrechte. Die Verjährungsfrist für Mängelansprüche bei neuen Waren beträgt zwei Jahre ab Lieferung.</p>
+          <p>Soweit Hersteller eine darüber hinausgehende Garantie gewähren, wird diese gesondert bei dem jeweiligen Produkt ausgewiesen. Eine solche Garantie begründet zusätzliche Ansprüche des Käufers neben den gesetzlichen Gewährleistungsrechten.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 8 Haftungsbeschränkung</h2>
+          <p>Schadensersatzansprüche des Käufers sind ausgeschlossen, soweit nachfolgend nichts anderes bestimmt ist. Der vorstehende Haftungsausschluss gilt auch zugunsten der gesetzlichen Vertreter und Erfüllungsgehilfen des Verkäufers, sofern der Käufer Ansprüche gegen diese geltend macht.</p>
+          <p>Von dem Haftungsausschluss ausgenommen sind Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit sowie Schäden durch Verletzung wesentlicher Vertragspflichten.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 9 Datenschutz</h2>
+          <p>Informationen zur Verarbeitung Ihrer personenbezogenen Daten finden Sie in unserer <button onClick={()=>setView("datenschutz")} style={{background:"none",border:"none",color:"var(--acc)",cursor:"pointer",fontSize:"inherit",padding:0,textDecoration:"underline"}}>Datenschutzerklärung</button>.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 10 Anwendbares Recht und Gerichtsstand</h2>
+          <p>Es gilt das Recht der Bundesrepublik Deutschland unter Ausschluss des UN-Kaufrechts. Gegenüber Verbrauchern gilt diese Rechtswahl nur insoweit, als hierdurch nicht der durch zwingende Bestimmungen des Rechts des Staates des gewöhnlichen Aufenthalts des Verbrauchers gewährte Schutz entzogen wird.</p>
+          <p>Gerichtsstand ist Schwetzingen, sofern der Käufer Kaufmann, juristische Person des öffentlichen Rechts oder öffentlich-rechtliches Sondervermögen ist.</p>
+        </div>
+
+        <div className="legal-section">
+          <h2>§ 11 Streitbeilegung</h2>
+          <p>Die EU-Kommission stellt eine Plattform für außergerichtliche Online-Streitbeilegung bereit: <a href="https://ec.europa.eu/consumers/odr" style={{color:"var(--acc)"}}>https://ec.europa.eu/consumers/odr</a>. Zur Teilnahme an einem Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle sind wir weder bereit noch verpflichtet.</p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── DATENSCHUTZ PAGE ──────────────────────────────────────────────────────────
+function DatenschutzPage() {
+  return (
+    <>
+      <div className="page-hero">
+        <div className="page-hero-inner">
+          <div className="page-hero-tag"><I d={ICONS.shield} size={12}/> Rechtliches</div>
+          <h1>Datenschutzerklärung</h1>
+          <p>Gemäß DSGVO und BDSG · Stand: Januar 2026</p>
+        </div>
+      </div>
+      <div className="page-wrap">
+        <div className="legal-section">
+          <h2>§ 1 Verantwortlicher</h2>
+          <div className="legal-highlight">
+            <p>MK-Electro · Inh. Andreas Kraus · Von-Drais-Straße 3a · 68775 Ketsch<br/>
+            E-Mail: info@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
+          </div>
+        </div>
+        <div className="legal-section">
+          <h2>§ 2 Erhebung und Verarbeitung personenbezogener Daten</h2>
+          <p>Wir erheben personenbezogene Daten nur, soweit dies zur Begründung, inhaltlichen Ausgestaltung oder Änderung des Rechtsverhältnisses erforderlich ist (Bestandsdaten). Personenbezogene Daten über die Inanspruchnahme unserer Seiten (Nutzungsdaten) erheben, verarbeiten und nutzen wir nur, soweit dies erforderlich ist, um dem Nutzer die Inanspruchnahme des Dienstes zu ermöglichen oder abzurechnen.</p>
+          <h3>Bei Bestellungen erheben wir folgende Daten:</h3>
+          <ul>
+            <li>Name und Anschrift</li>
+            <li>E-Mail-Adresse</li>
+            <li>Zahlungsdaten (bei PayPal über PayPal erhoben)</li>
+            <li>Bestelldaten (Artikel, Mengen, Preise)</li>
+          </ul>
+        </div>
+        <div className="legal-section">
+          <h2>§ 3 Rechtsgrundlage der Verarbeitung</h2>
+          <p>Die Verarbeitung Ihrer Daten erfolgt auf Grundlage von Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung) sowie Art. 6 Abs. 1 lit. c DSGVO (rechtliche Verpflichtung, z. B. steuerrechtliche Aufbewahrungspflichten).</p>
+        </div>
+        <div className="legal-section">
+          <h2>§ 4 Speicherdauer</h2>
+          <p>Ihre personenbezogenen Daten werden gelöscht oder gesperrt, sobald der Zweck der Speicherung entfällt. Eine Speicherung kann darüber hinaus dann erfolgen, wenn dies durch den europäischen oder nationalen Gesetzgeber in unionsrechtlichen Verordnungen, Gesetzen oder sonstigen Vorschriften, denen der Verantwortliche unterliegt, vorgesehen wurde. Eine Sperrung oder Löschung der Daten erfolgt auch dann, wenn eine durch die genannten Normen vorgeschriebene Speicherfrist abläuft, es sei denn, dass eine Erforderlichkeit zur weiteren Speicherung der Daten für einen Vertragsabschluss oder eine Vertragserfüllung besteht.</p>
+        </div>
+        <div className="legal-section">
+          <h2>§ 5 Ihre Rechte</h2>
+          <p>Sie haben jederzeit das Recht auf:</p>
+          <ul>
+            <li>Auskunft über Ihre gespeicherten Daten (Art. 15 DSGVO)</li>
+            <li>Berichtigung unrichtiger Daten (Art. 16 DSGVO)</li>
+            <li>Löschung Ihrer Daten (Art. 17 DSGVO)</li>
+            <li>Einschränkung der Verarbeitung (Art. 18 DSGVO)</li>
+            <li>Datenübertragbarkeit (Art. 20 DSGVO)</li>
+            <li>Widerspruch gegen die Verarbeitung (Art. 21 DSGVO)</li>
+          </ul>
+          <p>Zur Ausübung Ihrer Rechte wenden Sie sich bitte an: info@mk-electro.com</p>
+          <p>Unbeschadet eines anderweitigen verwaltungsrechtlichen oder gerichtlichen Rechtsbehelfs steht Ihnen das Recht auf Beschwerde bei einer Aufsichtsbehörde zu. Die zuständige Aufsichtsbehörde ist der <strong style={{color:"var(--tx)"}}>Landesbeauftragte für den Datenschutz und die Informationsfreiheit Baden-Württemberg</strong>.</p>
+        </div>
+        <div className="legal-section">
+          <h2>§ 6 Zahlungsdienstleister PayPal</h2>
+          <p>Zur Abwicklung von Zahlungen nutzen wir den Dienst PayPal (PayPal (Europe) S.à r.l. et Cie, S.C.A., 22-24 Boulevard Royal, L-2449 Luxembourg). Bei Nutzung von PayPal werden Ihre Daten an PayPal übermittelt. Es gelten die Datenschutzbestimmungen von PayPal: <a href="https://www.paypal.com/de/webapps/mpp/ua/privacy-full" style={{color:"var(--acc)"}}>https://www.paypal.com/de/datenschutz</a></p>
+        </div>
+        <div className="legal-section">
+          <h2>§ 7 Cookies</h2>
+          <p>Diese Website verwendet technisch notwendige Cookies, um den Warenkorb und Sitzungsdaten zu speichern. Diese Cookies sind für den Betrieb des Shops erforderlich und können nicht deaktiviert werden. Es werden keine Marketing- oder Tracking-Cookies eingesetzt.</p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── SHOP VIEW ─────────────────────────────────────────────────────────────────
+function ShopView({ products, categories, category, search, setCategory, setSearch, addToCart, setView }) {
+  return (
+    <>
+      <section className="hero">
+        <div className="hero-tag"><I d={ICONS.tag} size={12}/> Markentechnik · Direkt vom Großhandel</div>
+        <h1>Echte Marken.<br/><em>Faire Preise.</em></h1>
+        <p>Braun, Philips, Pioneer, Remington – Originalware mit voller Herstellergarantie.</p>
+        <div className="hero-btns">
+          <button className="btn btn-p" onClick={()=>document.querySelector(".filters")?.scrollIntoView({behavior:"smooth"})}>Zum Sortiment →</button>
+        </div>
+      </section>
+
+      <div className="filters">
+        <div className="sw"><I d={ICONS.search} size={15}/><input className="si" placeholder="Suchen …" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+        <div className="chips">
+          {categories.map(c=><button key={c} className={`chip${category===c?" on":""}`} onClick={()=>setCategory(c)}>{c}</button>)}
+        </div>
+      </div>
+
+      <div className="pgrid">
+        {products.length===0 && <p style={{color:"var(--mu)",gridColumn:"1/-1",padding:"2rem"}}>Keine Produkte gefunden.</p>}
+        {products.map(p=><ProductCard key={p.id} p={p} onAddToCart={addToCart}/>)}
+      </div>
+
+      <div className="trust">
+        {[["Sichere Zahlung",ICONS.shield],["Schnelle Lieferung",ICONS.truck],["Originalware & Garantie",ICONS.check]].map(([l,d],i)=>(
+          <div key={i} className="ti"><I d={d} size={15}/>{l}</div>
+        ))}
+      </div>
+
+      <footer>
+        <div className="footer-main">
+          <div className="footer-col">
+            <h4>MK·Electro</h4>
+            <p>Ihr Fachhändler für Multimedia & Elektroartikel. Originalware mit Herstellergarantie.</p>
+            <p style={{marginTop:".6rem"}}>Inh. Andreas Kraus<br/>Von-Drais-Straße 3a<br/>68775 Ketsch</p>
+          </div>
+          <div className="footer-col">
+            <h4>Shop</h4>
+            <a onClick={()=>setView("shop")} style={{cursor:"pointer"}}>Alle Produkte</a>
+            <a onClick={()=>setView("contact")} style={{cursor:"pointer"}}>Kontakt</a>
+          </div>
+          <div className="footer-col">
+            <h4>Rechtliches</h4>
+            <a onClick={()=>setView("impressum")} style={{cursor:"pointer"}}>Impressum</a>
+            <a onClick={()=>setView("agb")} style={{cursor:"pointer"}}>AGB</a>
+            <a onClick={()=>setView("datenschutz")} style={{cursor:"pointer"}}>Datenschutz</a>
+          </div>
+          <div className="footer-col">
+            <h4>Kontakt</h4>
+            <p>info@mk-electro.com</p>
+            <p>+49 (0) 6202 · 123456</p>
+            <p>Mo–Fr: 9:00–17:00 Uhr</p>
+          </div>
+        </div>
+        <div className="footer-bottom">
+          <span>© 2026 MK-Electro · Inh. Andreas Kraus · Alle Rechte vorbehalten</span>
+          <div className="footer-bottom-links">
+            <button onClick={()=>setView("impressum")}>Impressum</button>
+            <button onClick={()=>setView("agb")}>AGB</button>
+            <button onClick={()=>setView("datenschutz")}>Datenschutz</button>
+            <button onClick={()=>setView("contact")}>Kontakt</button>
+          </div>
+        </div>
+      </footer>
+
+    </>
+  );
+}
+
+// ── BACKEND VIEW ──────────────────────────────────────────────────────────────
+function BackendView({ products, orders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus }) {
+  const revenue = orders.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+
+  return (
+    <div className="be-wrap">
+      <aside className="be-side">
+        <div className="be-side-ttl">Navigation</div>
+        {[{k:"dashboard",l:"Dashboard",d:ICONS.home},{k:"products",l:"Produkte",d:ICONS.box},{k:"orders",l:"Bestellungen",d:ICONS.orders}].map(item=>(
+          <div key={item.k} className={`bni${beSection===item.k?" on":""}`} onClick={()=>setBeSection(item.k)}>
+            <I d={item.d} size={15}/>{item.l}
+            {item.k==="orders" && orders.filter(o=>o.status==="Neu").length>0 && (
+              <span className="badge" style={{marginLeft:"auto",background:"var(--acc2)"}}>{orders.filter(o=>o.status==="Neu").length}</span>
+            )}
+          </div>
+        ))}
+      </aside>
+
+      <div className="be-ct">
+        {/* DASHBOARD */}
+        {beSection==="dashboard" && (
+          <>
+            <div className="be-hdr"><div className="be-ttl">Dashboard</div></div>
+            <div className="stats">
+              {[["Produkte",products.length,"im Sortiment"],["Bestellungen",orders.length,"gesamt"],["Umsatz",revenue.toFixed(0)+" €","inkl. MwSt."],["Lager (gesamt)",products.reduce((s,p)=>s+(parseInt(p.stock)||0)+(parseInt(p.stockExternal)||0),0),`davon AL: ${products.reduce((s,p)=>s+(parseInt(p.stockExternal)||0),0)} Stk.`]].map(([l,v,s])=>(
+                <div key={l} className="sc"><div className="sc-lbl">{l}</div><div className="sc-val">{v}</div><div className="sc-sub">{s}</div></div>
+              ))}
+            </div>
+
+            {/* Recent orders */}
+            <h3 style={{fontFamily:"Barlow Condensed",fontWeight:800,marginBottom:"1rem",fontSize:"1rem",color:"var(--mu)",textTransform:"uppercase",letterSpacing:"1px"}}>
+              Neue Bestellungen
+            </h3>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead><tr><th>Bestell-Nr.</th><th>Datum</th><th>Kunde</th><th>Summe</th><th>Status</th><th>Aktionen</th></tr></thead>
+                <tbody>
+                  {orders.slice(0,6).map(o=>(
+                    <tr key={o.id}>
+                      <td style={{fontFamily:"monospace",color:"var(--acc)",fontSize:".78rem"}}>{o.id}</td>
+                      <td>{o.date}</td><td>{o.customer?.name}</td>
+                      <td style={{fontWeight:700}}>{fmt(o.total)}</td>
+                      <td><span className={`spill ${statusClass[o.status]||"s-new"}`}>{o.status}</span></td>
+                      <td>
+                        <div className="acts">
+                          <button className="btn btn-o btn-sm" onClick={()=>{setOrderModal(o);setBeSection("orders");}}>
+                            <I d={ICONS.eye} size={12}/> Details
+                          </button>
+                          <button className="btn btn-i btn-sm" onClick={()=>setInvoiceModal(o)}>
+                            <I d={ICONS.invoice} size={12}/> Rechnung
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {orders.length===0 && <tr><td colSpan={6} style={{color:"var(--mu)",textAlign:"center",padding:"2rem"}}>Noch keine Bestellungen.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {/* PRODUCTS */}
+        {beSection==="products" && (
+          <>
+            <div className="be-hdr">
+              <div className="be-ttl">Produkte</div>
+              <button className="btn btn-p btn-sm" onClick={()=>setProductModal({})}><I d={ICONS.plus} size={14}/> Neues Produkt</button>
+            </div>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead><tr><th></th><th>Name & SKU</th><th>Kat.</th><th>EK</th><th>Versand</th><th>VK</th><th>eBay</th><th>Netto-Marge</th><th>Eig.Lager</th><th>Außenlager</th><th>Gesamt</th><th>Bilder</th><th>Aktionen</th></tr></thead>
+                <tbody>
+                  {products.map(p=>{
+                    const imgs = p.images || [p.image].filter(Boolean);
+                    const m = calcMargin(p.price, p.ek, p.shipping);
+                    const { local, ext, total } = stockInfo(p);
+                    const mColor = !m ? "var(--mu)" : m.pct >= 25 ? "var(--ok)" : m.pct >= 15 ? "var(--acc)" : "var(--err)";
+                    return (
+                      <tr key={p.id}>
+                        <td><img className="thumb" src={imgs[0]||"https://placehold.co/36x36/161b23/6e7d96?text=?"} alt="" onError={e=>e.target.src="https://placehold.co/36x36/161b23/6e7d96?text=?"}/></td>
+                        <td>
+                          <div style={{fontWeight:600,fontSize:".83rem"}}>{p.name}</div>
+                          {p.sku && <div style={{fontSize:".68rem",color:"var(--mu)",fontFamily:"monospace"}}>#{p.sku}</div>}
+                        </td>
+                        <td style={{color:"var(--mu)",fontSize:".8rem"}}>{p.category}</td>
+                        <td style={{color:"var(--mu)",fontSize:".8rem"}}>{p.ek?fmt(p.ek):"—"}</td>
+                        <td style={{color:"var(--mu)",fontSize:".78rem"}}>{p.shipping?fmt(p.shipping):"—"}</td>
+                        <td style={{color:"var(--acc)",fontWeight:700}}>{fmt(p.price)}</td>
+                        <td style={{color:"var(--mu)",fontSize:".78rem"}}>{m?fmt(m.ebay):"—"}</td>
+                        <td>
+                          {m ? <span style={{color:mColor,fontWeight:700,fontSize:".82rem"}}>{fmt(m.netto)} <span style={{fontSize:".65rem",opacity:.75}}>({m.pct}%)</span></span> : "—"}
+                        </td>
+                        <td><span className={`sbadge ${local>8?"sok":local>0?"slow":"sout"}`}>{local} Stk.</span></td>
+                        <td>
+                          {ext > 0
+                            ? <span className="ext-badge"><I d={ICONS.box} size={11}/>{ext} Stk.</span>
+                            : <span style={{color:"var(--mu)",fontSize:".78rem"}}>—</span>
+                          }
+                        </td>
+                        <td style={{fontWeight:700,fontSize:".85rem"}}>{total}</td>
+                        <td style={{color:"var(--mu)",fontSize:".78rem"}}>{imgs.length} Bild{imgs.length!==1?"er":""}</td>
+                        <td>
+                          <div className="acts">
+                            <button className="btn btn-o btn-sm" onClick={()=>setProductModal(p)}><I d={ICONS.edit} size={12}/></button>
+                            <button className="btn btn-d btn-sm" onClick={()=>{if(window.confirm("Löschen?"))deleteProduct(p.id)}}><I d={ICONS.trash} size={12}/></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {/* ORDERS */}
+        {beSection==="orders" && (
+          <>
+            <div className="be-hdr"><div className="be-ttl">Bestellungen</div></div>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead><tr><th>Bestell-Nr.</th><th>Datum</th><th>Kunde</th><th>E-Mail</th><th>Zahlung</th><th>Summe</th><th>Status</th><th>Aktionen</th></tr></thead>
+                <tbody>
+                  {orders.map(o=>(
+                    <tr key={o.id}>
+                      <td style={{fontFamily:"monospace",color:"var(--acc)",fontSize:".78rem"}}>{o.id}</td>
+                      <td>{o.date}</td>
+                      <td style={{fontWeight:600}}>{o.customer?.name}</td>
+                      <td style={{color:"var(--mu)",fontSize:".78rem"}}>{o.customer?.email}</td>
+                      <td style={{textTransform:"capitalize",color:"var(--mu)",fontSize:".8rem"}}>{o.payment}</td>
+                      <td style={{fontWeight:700}}>{fmt(o.total)}</td>
+                      <td><span className={`spill ${statusClass[o.status]||"s-new"}`}>{o.status}</span></td>
+                      <td>
+                        <div className="acts">
+                          <button className="btn btn-o btn-sm" onClick={()=>setOrderModal(o)}>
+                            <I d={ICONS.eye} size={12}/> Details
+                          </button>
+                          <button className="btn btn-i btn-sm" onClick={()=>setInvoiceModal(o)}>
+                            <I d={ICONS.invoice} size={12}/> Rechnung
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {orders.length===0 && <tr><td colSpan={8} style={{color:"var(--mu)",textAlign:"center",padding:"2rem"}}>Noch keine Bestellungen.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* MODALS */}
+      {productModal!==null && <ProductModal product={productModal} onSave={saveProduct} onClose={()=>setProductModal(null)}/>}
+      {orderModal && <OrderModal order={orderModal} onClose={()=>setOrderModal(null)} onStatusChange={updateOrderStatus} onOpenInvoice={()=>{setInvoiceModal(orderModal);setOrderModal(null);}}/>}
+      {invoiceModal && <InvoiceModal order={invoiceModal} onClose={()=>setInvoiceModal(null)}/>}
+    </div>
+  );
+}
+
+// ── ROOT APP ──────────────────────────────────────────────────────────────────
+export default function App() {
+  const [view, setView] = useState("shop"); // shop | backend | contact | impressum | agb | datenschutz
+  const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [cart, setCart] = useState([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [orderSuccess, setOrderSuccess] = useState(null);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("Alle");
+  const [beSection, setBeSection] = useState("dashboard");
+  const [productModal, setProductModal] = useState(null);
+  const [orderModal, setOrderModal] = useState(null);
+  const [invoiceModal, setInvoiceModal] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const p = await load(SK.products, DEFAULT_PRODUCTS);
+      const o = await load(SK.orders, []);
+      setProducts(p); setOrders(o); setLoaded(true);
+    })();
+  }, []);
+  useEffect(() => { if(loaded) save(SK.products, products); }, [products, loaded]);
+  useEffect(() => { if(loaded) save(SK.orders, orders); }, [orders, loaded]);
+
+  const categories = ["Alle", ...Array.from(new Set(products.map(p=>p.category)))];
+  const filtered = products.filter(p => {
+    const inCat = category==="Alle" || p.category===category;
+    const q = search.toLowerCase();
+    const inSearch = !q || p.name.toLowerCase().includes(q) || (p.description||"").toLowerCase().includes(q) || (p.sku||"").toLowerCase().includes(q);
+    return inCat && inSearch;
+  });
+
+  const addToCart = (product) => {
+    setCart(c => {
+      const ex = c.find(i=>i.id===product.id);
+      if(ex) return c.map(i=>i.id===product.id?{...i,qty:Math.min(i.qty+1,product.stock)}:i);
+      return [...c, {...product, qty:1}];
+    });
+    setCartOpen(true);
+  };
+  const updateQty = (id,delta) => setCart(c=>c.map(i=>i.id===id?{...i,qty:Math.max(1,i.qty+delta)}:i).filter(i=>i.qty>0));
+  const removeFromCart = (id) => setCart(c=>c.filter(i=>i.id!==id));
+  const cartTotal = cart.reduce((s,i)=>s+i.price*i.qty, 0);
+  const cartCount = cart.reduce((s,i)=>s+i.qty, 0);
+
+  const placeOrder = (data) => {
+    const order = { id:genId(), date:fmtDate(), status:"Neu", payment:data.payment, customer:data.customer, items:cart, total:cartTotal };
+    setOrders(o=>[order,...o]);
+    setCart([]); setCheckoutOpen(false); setOrderSuccess(order); setCartOpen(false);
+  };
+
+  const saveProduct = (prod) => {
+    if(prod.id) setProducts(ps=>ps.map(p=>p.id===prod.id?prod:p));
+    else setProducts(ps=>[{...prod,id:Date.now()},...ps]);
+    setProductModal(null);
+  };
+  const deleteProduct = (id) => setProducts(ps=>ps.filter(p=>p.id!==id));
+  const updateOrderStatus = (id,status) => setOrders(os=>os.map(o=>o.id===id?{...o,status}:o));
+
+  if(!loaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--mu)",fontFamily:"Barlow,sans-serif"}}>Lädt…</div>;
+
+  const newOrderCount = orders.filter(o=>o.status==="Neu").length;
+
+  return (
+    <>
+      <style>{CSS}</style>
+      <div className="app">
+        <nav className="nav">
+          <span className="logo" style={{cursor:"pointer"}} onClick={()=>setView("shop")}>MK<em>·</em>ELECTRO <small>mk-electro.com</small></span>
+          <div className="nav-links">
+            <button className={`nb${view==="shop"?" on":""}`} onClick={()=>setView("shop")}><I d={ICONS.home} size={15}/> Shop</button>
+            <button className={`nb${view==="contact"?" on":""}`} onClick={()=>setView("contact")}><I d={ICONS.mail} size={15}/> Kontakt</button>
+            <button className={`nb${view==="backend"?" on":""}`} onClick={()=>setView("backend")} style={{position:"relative"}}>
+              <I d={ICONS.shield} size={15}/> Backend
+              {newOrderCount>0 && <span className="badge" style={{position:"absolute",top:".1rem",right:".1rem",fontSize:".55rem",padding:".05rem .28rem"}}>{newOrderCount}</span>}
+            </button>
+          </div>
+          {(view==="shop"||view==="contact"||view==="impressum"||view==="agb"||view==="datenschutz") && (
+            <button className="cart-btn" onClick={()=>setCartOpen(true)}>
+              <I d={ICONS.cart} size={15}/> Warenkorb {cartCount>0 && <span className="badge">{cartCount}</span>}
+            </button>
+          )}
+        </nav>
+
+        {view==="shop" && (
+          <ShopView
+            products={filtered} categories={categories} category={category} search={search}
+            setCategory={setCategory} setSearch={setSearch} addToCart={addToCart}
+            setView={setView}
+          />
+        )}
+        {view==="contact"    && <ContactPage    setView={setView}/>}
+        {view==="impressum"  && <ImpressumPage  />}
+        {view==="agb"        && <AGBPage        setView={setView}/>}
+        {view==="datenschutz"&& <DatenschutzPage/>}
+        {view==="backend" && (
+          <BackendView
+            products={products} orders={orders} beSection={beSection} setBeSection={setBeSection}
+            productModal={productModal} setProductModal={setProductModal}
+            orderModal={orderModal} setOrderModal={setOrderModal}
+            invoiceModal={invoiceModal} setInvoiceModal={setInvoiceModal}
+            saveProduct={saveProduct} deleteProduct={deleteProduct} updateOrderStatus={updateOrderStatus}
+          />
+        )}
+
+        {/* Global cart sidebar — available on all non-backend pages */}
+        {view!=="backend" && cartOpen && (
+          <>
+            <div className="ov" onClick={()=>setCartOpen(false)}/>
+            <div className="cart-sb">
+              <div className="sb-hdr">
+                <h2>Warenkorb ({cartCount})</h2>
+                <div className="xbtn" onClick={()=>setCartOpen(false)}><I d={ICONS.x} size={14}/></div>
+              </div>
+              <div className="cart-items">
+                {cart.length===0 ? (
+                  <div style={{textAlign:"center",padding:"3rem 1rem",color:"var(--mu)"}}>
+                    <I d={ICONS.cart} size={36}/><p style={{marginTop:"1rem"}}>Ihr Warenkorb ist leer.</p>
+                  </div>
+                ) : cart.map(item=>{
+                  const img = (item.images||[item.image].filter(Boolean))[0] || "";
+                  return (
+                    <div key={item.id} className="citem">
+                      <img src={img} alt={item.name} onError={e=>e.target.src="https://placehold.co/56x56/161b23/6e7d96?text=?"}/>
+                      <div className="cinfo">
+                        <div className="cname">{item.name}</div>
+                        <div className="cprice">{fmt(item.price*item.qty)}</div>
+                        <div className="qc">
+                          <div className="qb" onClick={()=>removeFromCart(item.id)}><I d={ICONS.trash} size={10}/></div>
+                          <div className="qb" onClick={()=>updateQty(item.id,-1)}><I d={ICONS.minus} size={10}/></div>
+                          <span className="qn">{item.qty}</span>
+                          <div className="qb" onClick={()=>updateQty(item.id,1)}><I d={ICONS.plus} size={10}/></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {cart.length>0 && (
+                <div className="cart-ft">
+                  <div className="ctotal"><span>Gesamt inkl. MwSt.</span><span>{fmt(cartTotal)}</span></div>
+                  <button className="btn btn-p" style={{width:"100%"}} onClick={()=>{setCartOpen(false);setCheckoutOpen(true);}}>Zur Kasse →</button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        {view!=="backend" && checkoutOpen && <Checkout cart={cart} cartTotal={cartTotal} onClose={()=>setCheckoutOpen(false)} onOrder={placeOrder}/>}
+        {view!=="backend" && orderSuccess && (
+          <>
+            <div className="ov" onClick={()=>setOrderSuccess(null)}/>
+            <div className="chk-ov">
+              <div className="chk-box" style={{maxWidth:460}}>
+                <div className="succ-scr">
+                  <div className="succ-ic"><I d={ICONS.check} size={26}/></div>
+                  <h2>Bestellung erfolgreich!</h2>
+                  <p style={{color:"var(--mu)"}}>Vielen Dank für Ihren Einkauf bei MK-Electro.</p>
+                  <div className="ord-id">#{orderSuccess.id}</div>
+                  {orderSuccess.payment==="vorkasse" && (
+                    <div className="bank-box">
+                      <p><strong>Bitte überweisen Sie auf:</strong></p>
+                      <p><span>Kontoinhaber:</span> <strong>MK-Electro · Andreas Kraus</strong></p>
+                      <p><span>IBAN:</span> <strong>DE89 3704 0044 0532 0130 00</strong></p>
+                      <p><span>BIC:</span> <strong>COBADEFFXXX</strong></p>
+                      <p><span>Verwendungszweck:</span> <strong>{orderSuccess.id}</strong></p>
+                      <p style={{marginTop:".4rem",color:"var(--acc)",fontSize:".78rem"}}>Betrag: {fmt(orderSuccess.total)}</p>
+                    </div>
+                  )}
+                  {orderSuccess.payment==="paypal" && <p style={{marginTop:".9rem",color:"var(--mu)",fontSize:".82rem"}}>Sie werden zu PayPal weitergeleitet… (Demo)</p>}
+                  <button className="btn btn-p" style={{marginTop:"1.4rem"}} onClick={()=>setOrderSuccess(null)}>Zurück zum Shop</button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
