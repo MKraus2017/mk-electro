@@ -2336,6 +2336,9 @@ function CustomerAuthPage({ onLogin, setView }) {
     name:"", email:"", phone:"", street:"", zip:"", city:"",
     password:"", password2:"",
   });
+  const [consentDaten, setConsentDaten] = useState(false);
+  const [consentNewsletter, setConsentNewsletter] = useState(false);
+  const [consentErr, setConsentErr] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -2365,7 +2368,8 @@ function CustomerAuthPage({ onLogin, setView }) {
     if (!form.zip.trim() || !form.city.trim()) { setError("Bitte PLZ und Ort eingeben."); return; }
     if (form.password.length < 6) { setError("Passwort muss mindestens 6 Zeichen haben."); return; }
     if (form.password !== form.password2) { setError("Passwörter stimmen nicht überein."); return; }
-    setLoading(true); setError("");
+    if (!consentDaten) { setConsentErr(true); setError("Bitte stimmen Sie der Datenverarbeitung zu."); return; }
+    setLoading(true); setError(""); setConsentErr(false);
     try {
       const { data, error: err } = await supabase.auth.signUp({
         email: form.email, password: form.password,
@@ -2376,6 +2380,7 @@ function CustomerAuthPage({ onLogin, setView }) {
             street: form.street,
             zip: form.zip,
             city: form.city,
+            newsletter: consentNewsletter,
           },
         },
       });
@@ -2406,8 +2411,8 @@ function CustomerAuthPage({ onLogin, setView }) {
         </div>
 
         <div className="auth-tabs">
-          <button className={`auth-tab${tab==="login"?" on":""}`} onClick={()=>{setTab("login");setError("");setSuccess("");}}>Einloggen</button>
-          <button className={`auth-tab${tab==="register"?" on":""}`} onClick={()=>{setTab("register");setError("");setSuccess("");}}>Registrieren</button>
+          <button className={`auth-tab${tab==="login"?" on":""}`} onClick={()=>{setTab("login");setError("");setSuccess("");setConsentErr(false);}}>Einloggen</button>
+          <button className={`auth-tab${tab==="register"?" on":""}`} onClick={()=>{setTab("register");setError("");setSuccess("");setConsentErr(false);}}>Registrieren</button>
         </div>
 
         {error && <div className="auth-err"><I d={ICONS.x} size={14}/>{error}</div>}
@@ -2440,11 +2445,11 @@ function CustomerAuthPage({ onLogin, setView }) {
             <div className="fr">
               <div className="fg">
                 <label>PLZ *</label>
-                <input className="fi" placeholder="68775" value={form.zip} onChange={e=>sf("zip",e.target.value)}/>
+                <input className="fi" placeholder="12345" value={form.zip} onChange={e=>sf("zip",e.target.value)}/>
               </div>
               <div className="fg">
                 <label>Ort *</label>
-                <input className="fi" placeholder="Ketsch" value={form.city} onChange={e=>sf("city",e.target.value)}/>
+                <input className="fi" placeholder="Musterstadt" value={form.city} onChange={e=>sf("city",e.target.value)}/>
               </div>
             </div>
 
@@ -2457,6 +2462,43 @@ function CustomerAuthPage({ onLogin, setView }) {
               <label>Passwort bestätigen *</label>
               <input className="fi" type="password" placeholder="Passwort wiederholen" value={form.password2}
                 onChange={e=>sf("password2",e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleRegister()}/>
+            </div>
+
+            {/* Einverständnisse */}
+            <div style={{marginTop:".85rem"}} className="chk-consent">
+              {/* Pflicht: Datenschutz */}
+              <div
+                className={`chk-consent-row required${consentDaten?" checked":""}${consentErr&&!consentDaten?" err-border":""}`}
+                onClick={()=>{setConsentDaten(v=>!v);setConsentErr(false);setError("");}}>
+                <div className={`chk-box-input${consentDaten?" checked":""}`}>
+                  {consentDaten && <I d={ICONS.check} size={11} sw={3}/>}
+                </div>
+                <div className="chk-consent-txt">
+                  <strong>Einverständnis Datenverarbeitung *</strong><br/>
+                  Ich stimme zu, dass meine personenbezogenen Daten zur Kontoführung und Bestellabwicklung gemäß der{" "}
+                  <span style={{color:"var(--acc)",textDecoration:"underline",cursor:"pointer"}}
+                    onClick={e=>{e.stopPropagation();setView("datenschutz");}}>
+                    Datenschutzerklärung
+                  </span>{" "}
+                  verarbeitet werden. Diese Zustimmung ist zur Kontoerstellung erforderlich.
+                </div>
+              </div>
+
+              {/* Optional: Newsletter */}
+              <div
+                className={`chk-consent-row${consentNewsletter?" checked":""}`}
+                onClick={()=>setConsentNewsletter(v=>!v)}>
+                <div className={`chk-box-input${consentNewsletter?" checked-opt":""}`}>
+                  {consentNewsletter && <I d={ICONS.check} size={11} sw={3}/>}
+                </div>
+                <div className="chk-consent-txt">
+                  <strong>Newsletter abonnieren</strong>{" "}
+                  <span style={{fontWeight:400,color:"var(--mu)"}}>(optional)</span><br/>
+                  Ja, ich möchte den MK-Electro Newsletter mit Angeboten und Neuigkeiten per E-Mail erhalten. Abmeldung jederzeit möglich.
+                </div>
+              </div>
+
+              <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".3rem"}}>* Pflichtfeld</div>
             </div>
           </>
         )}
@@ -2477,7 +2519,7 @@ function CustomerAuthPage({ onLogin, setView }) {
           </>
         )}
 
-        <button className="btn btn-p" style={{width:"100%",justifyContent:"center",marginTop:".5rem",padding:".75rem",fontSize:"1rem"}}
+        <button className="btn btn-p" style={{width:"100%",justifyContent:"center",marginTop:".75rem",padding:".75rem",fontSize:"1rem"}}
           onClick={tab==="login"?handleLogin:handleRegister} disabled={loading}>
           {loading ? "Bitte warten…" : tab==="login" ? "Einloggen" : "Konto erstellen"}
         </button>
