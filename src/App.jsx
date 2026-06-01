@@ -1119,10 +1119,20 @@ function OrderModal({ order, onClose, onStatusChange, onSaveDetails, onOpenInvoi
   const [serialNums, setSerialNums] = useState(
     order.serial_numbers || (order.items||[]).map(i=>({id:i.id, name:i.name, serial:""}))
   );
+  // Editable customer fields
+  const [cust, setCust] = useState({
+    name:   order.customer?.name   || "",
+    email:  order.customer?.email  || "",
+    street: order.customer?.street || "",
+    zip:    order.customer?.zip    || "",
+    city:   order.customer?.city   || "",
+  });
+  const sc = (k,v) => setCust(c=>({...c,[k]:v}));
+
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const CARRIERS = ["Hermes","DHL","DHL Express","UPS","GLS","Sonstiges"];
+  const CARRIERS = ["Hermes","DHL","DHL Express","UPS","GLS","DPD","Deutsche Post","Sonstiges"];
   const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
 
   const setSerial = (id, val) => setSerialNums(s => s.map(x => x.id===id ? {...x,serial:val} : x));
@@ -1134,17 +1144,19 @@ function OrderModal({ order, onClose, onStatusChange, onSaveDetails, onOpenInvoi
       carrier: carrier || null,
       tracking_number: trackingNr || null,
       serial_numbers: serialNums,
+      customer_name:   cust.name,
+      customer_email:  cust.email,
+      customer_street: cust.street,
+      customer_zip:    cust.zip,
+      customer_city:   cust.city,
     };
     await onSaveDetails(order.id, fields);
     setSaving(false); setSaved(true);
     setTimeout(() => { setSaved(false); onClose(); }, 800);
   };
 
-  const copyTracking = () => {
-    navigator.clipboard.writeText(trackingNr);
-  };
+  const copyTracking = () => navigator.clipboard.writeText(trackingNr);
 
-  // Build tracking URL
   const trackingUrl = () => {
     if (!trackingNr) return null;
     if (carrier === "DHL" || carrier === "DHL Express")
@@ -1155,12 +1167,14 @@ function OrderModal({ order, onClose, onStatusChange, onSaveDetails, onOpenInvoi
       return `https://www.ups.com/track?tracknum=${trackingNr}`;
     if (carrier === "GLS")
       return `https://gls-group.com/track/${trackingNr}`;
+    if (carrier === "DPD")
+      return `https://tracking.dpd.de/status/de_DE/parcel/${trackingNr}`;
     return null;
   };
 
   return (
-    <div className="mkov" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="mkbox" style={{maxWidth:"min(740px,100%)"}}>
+    <div className="mkov" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+      <div className="mkbox" style={{maxWidth:"min(740px,100%)"}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"1.3rem"}}>
           <h2 style={{margin:0}}>Bestellung {order.id}</h2>
           <div style={{display:"flex",gap:".5rem",alignItems:"center"}}>
@@ -1169,19 +1183,32 @@ function OrderModal({ order, onClose, onStatusChange, onSaveDetails, onOpenInvoi
           </div>
         </div>
 
-        {/* Kundendaten */}
+        {/* Kundendaten — editierbar */}
         <div className="od-sec">
-          <h3>Kundendaten</h3>
-          <div className="od-grid">
-            {[
-              ["Name", order.customer?.name],
-              ["E-Mail", order.customer?.email],
-              ["Adresse", `${order.customer?.street||""}, ${order.customer?.zip||""} ${order.customer?.city||""}`],
-              ["Zahlung", order.payment==="paypal"?"PayPal":"Vorkasse"],
-              ["Datum", order.date],
-            ].map(([l,v])=>(
-              <div key={l} className="od-f"><label>{l}</label><p>{v||"—"}</p></div>
-            ))}
+          <h3>Kundendaten <span style={{fontSize:".7rem",fontWeight:400,color:"var(--mu)",textTransform:"none",letterSpacing:0}}>— bearbeitbar</span></h3>
+          <div className="fr">
+            <div className="fg"><label>Name</label>
+              <input className="fi" value={cust.name} onChange={e=>sc("name",e.target.value)} placeholder="Vor- & Nachname"/>
+            </div>
+            <div className="fg"><label>E-Mail</label>
+              <input className="fi" type="email" value={cust.email} onChange={e=>sc("email",e.target.value)} placeholder="email@beispiel.de"/>
+            </div>
+          </div>
+          <div className="fg"><label>Straße & Hausnummer</label>
+            <input className="fi" value={cust.street} onChange={e=>sc("street",e.target.value)} placeholder="Musterstraße 12"/>
+          </div>
+          <div className="fr">
+            <div className="fg"><label>PLZ</label>
+              <input className="fi" value={cust.zip} onChange={e=>sc("zip",e.target.value)} placeholder="12345"/>
+            </div>
+            <div className="fg"><label>Ort</label>
+              <input className="fi" value={cust.city} onChange={e=>sc("city",e.target.value)} placeholder="Berlin"/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:"1rem",fontSize:".78rem",color:"var(--mu)",marginTop:".25rem"}}>
+            <span>Zahlung: <strong style={{color:"var(--tx)"}}>{order.payment==="paypal"?"PayPal":order.payment==="ebay_checkout"?"eBay Checkout":order.payment||"—"}</strong></span>
+            <span>Datum: <strong style={{color:"var(--tx)"}}>{order.date}</strong></span>
+            {order.ebay_order_id && <span>eBay-Nr: <strong style={{color:"var(--tx)",fontFamily:"monospace"}}>{order.ebay_order_id}</strong></span>}
           </div>
         </div>
 
@@ -4669,11 +4696,21 @@ export default function App() {
   };
 
   const updateOrderDetails = async (id, fields) => {
-    // fields: { status, serial_numbers, carrier, tracking_number }
     try {
       await supabase.from("orders").update(fields).eq("id", id);
     } catch(e) { console.error("Bestellung Update fehlgeschlagen:", e); }
-    setOrders(os => os.map(o => o.id === id ? { ...o, ...fields } : o));
+    setOrders(os => os.map(o => o.id === id ? {
+      ...o,
+      ...fields,
+      // Rebuild customer object from flat DB fields if present
+      customer: {
+        name:   fields.customer_name   ?? o.customer?.name,
+        email:  fields.customer_email  ?? o.customer?.email,
+        street: fields.customer_street ?? o.customer?.street,
+        zip:    fields.customer_zip    ?? o.customer?.zip,
+        city:   fields.customer_city   ?? o.customer?.city,
+      }
+    } : o));
   };
 
   // Delete all orders for a customer by email (DSGVO compliant)
