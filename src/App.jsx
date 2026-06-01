@@ -3822,7 +3822,8 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
       price:      hi("gesamtbetrag"),
       priceInkl:  hi("gesamtbetrag inkl"),
       priceFall:  hi("verkauft für"),
-      buyerName:  hi("name des käufers"),
+      buyerName:  hi("name des empfängers"),
+      buyerNameFallback: hi("name des käufers"),
       buyerEmail: hi("e-mail des käufers"),
       street:     hi("adresse 1 des empfängers"),
       street2:    hi("adresse 2 des empfängers"),
@@ -3862,8 +3863,14 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
       const f = parseLine(line);
       const get = (idx) => idx > -1 ? (f[idx]||"").replace(/"/g,"").trim() : "";
 
+      // Prefer "Name des Empfängers" over "Name des Käufers" (which can be eBay username)
+      const recipientName = get(cols.buyerName);
+      const buyerNameRaw = get(cols.buyerNameFallback);
+      const resolvedName = (recipientName && !recipientName.includes("-"))
+        ? recipientName
+        : (recipientName || buyerNameRaw);
+
       const rawPrice = (() => {
-        // Try gesamtbetrag first (col 49 = "250,00 €")
         const p1 = get(cols.price);
         if (p1 && p1 !== "Nein" && p1 !== "") return p1;
         // Fallback: gesamtbetrag inkl.
@@ -3896,8 +3903,8 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
         ebayItemId:  get(cols.itemNum),
         itemName:    title || "Unbekannter Artikel",
         qty,
-        price:       (price / qty).toFixed(2), // unit price
-        buyerName:   get(cols.buyerName),
+        price:       (price / qty).toFixed(2),
+        buyerName:   resolvedName,
         buyerEmail:  get(cols.buyerEmail),
         street:      [get(cols.street), get(cols.street2)].filter(Boolean).join(", "),
         zip:         get(cols.zip),
