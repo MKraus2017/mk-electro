@@ -2294,7 +2294,7 @@ function ContactPage({ setView }) {
             </div>
             <div className="cinfo-row">
               <div className="cinfo-icon"><I d={ICONS.phone} size={16}/></div>
-              <div><h4>Telefon</h4><p>+49 (0) 6202 · 123456</p></div>
+              <div><h4>Telefon</h4><p></p></div>
             </div>
             <div className="cinfo-row">
               <div className="cinfo-icon"><I d={ICONS.truck} size={16}/></div>
@@ -2383,7 +2383,7 @@ function ImpressumPage() {
           <div>
             <h3>Steuerliche Angaben</h3>
             <p>Umsatzsteuer-Identifikationsnummer gemäß § 27a UStG:<br/>
-            <strong style={{color:"var(--tx)"}}>DE 123 456 789</strong></p>
+            <strong style={{color:"var(--tx)"}}>DE 211 477 305</strong></p>
           </div>
         </div>
 
@@ -2474,7 +2474,7 @@ function AGBPage({ setView }) {
           <p>Um Ihr Widerrufsrecht auszuüben, müssen Sie uns mittels einer eindeutigen Erklärung (z. B. ein mit der Post versandter Brief, Telefax oder E-Mail) über Ihren Entschluss, diesen Vertrag zu widerrufen, informieren:</p>
           <div className="legal-highlight">
             <p>MK-Electro · Inh. Andreas Kraus · Von-Drais-Straße 3a · 68775 Ketsch<br/>
-            E-Mail: shop@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
+            E-Mail: shop@mk-electro.com · </p>
           </div>
           <p>Zur Wahrung der Widerrufsfrist reicht es aus, dass Sie die Mitteilung über die Ausübung des Widerrufsrechts vor Ablauf der Widerrufsfrist absenden.</p>
           <h3>Folgen des Widerrufs</h3>
@@ -2529,7 +2529,7 @@ function DatenschutzPage() {
           <h2>§ 1 Verantwortlicher</h2>
           <div className="legal-highlight">
             <p>MK-Electro · Inh. Andreas Kraus · Von-Drais-Straße 3a · 68775 Ketsch<br/>
-            E-Mail: shop@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
+            E-Mail: shop@mk-electro.com · </p>
           </div>
         </div>
         <div className="legal-section">
@@ -2640,7 +2640,7 @@ function ShopView({ products, categories, category, search, setCategory, setSear
           <div className="footer-col">
             <h4>Kontakt</h4>
             <p>shop@mk-electro.com</p>
-            <p>+49 (0) 6202 · 123456</p>
+            <p></p>
             <p>Mo–Fr: 9:00–17:00 Uhr</p>
           </div>
         </div>
@@ -3136,7 +3136,7 @@ function CustomerAuthPage({ onLogin, setView }) {
               </div>
               <div className="fg">
                 <label>Telefon (optional)</label>
-                <input className="fi" type="tel" placeholder="+49 6202 …" value={form.phone} onChange={e=>sf("phone",e.target.value)}/>
+                <input className="fi" type="tel" placeholder="+49 12345 …" value={form.phone} onChange={e=>sf("phone",e.target.value)}/>
               </div>
             </div>
 
