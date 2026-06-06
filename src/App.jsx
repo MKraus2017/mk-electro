@@ -2374,7 +2374,7 @@ function ImpressumPage() {
           <div className="imp-card-icon"><I d={ICONS.phone} size={18}/></div>
           <div>
             <h3>Kontakt</h3>
-            <p>Telefon: +49 (0) 6202 · 123456<br/>
+            <p><br/>
             E-Mail: <a href="mailto:shop@mk-electro.com" style={{color:"var(--acc)"}}>shop@mk-electro.com</a></p>
           </div>
         </div>
