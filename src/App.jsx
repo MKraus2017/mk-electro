@@ -1133,7 +1133,7 @@ function OrderModal({ order, onClose, onStatusChange, onSaveDetails, onOpenInvoi
   const [saved, setSaved] = useState(false);
 
   const CARRIERS = ["Hermes","DHL","DHL Express","UPS","GLS","DPD","Deutsche Post","Sonstiges"];
-  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Zugestellt":"s-paid","Storniert":"s-canc" };
 
   const setSerial = (id, val) => setSerialNums(s => s.map(x => x.id===id ? {...x,serial:val} : x));
 
@@ -1289,7 +1289,7 @@ function OrderModal({ order, onClose, onStatusChange, onSaveDetails, onOpenInvoi
         <div className="od-sec">
           <h3>Bestellstatus</h3>
           <select className="fi" value={status} onChange={e=>setStatus(e.target.value)}>
-            {["Neu","Bezahlt","Versendet","Storniert"].map(s=><option key={s} value={s}>{s}</option>)}
+            {["Neu","Bezahlt","Versendet","Zugestellt","Storniert"].map(s=><option key={s} value={s}>{s}</option>)}
           </select>
           {status==="Versendet" && !carrier && (
             <div style={{fontSize:".75rem",color:"var(--acc)",marginTop:".4rem",display:"flex",alignItems:"center",gap:".3rem"}}>
@@ -2729,7 +2729,7 @@ function AnalyticsSection() {
 // ── BACKEND VIEW ──────────────────────────────────────────────────────────────
 function BackendView({ products, orders, setOrders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, updateOrderDetails, deleteCustomer }) {
   const revenue = orders.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
-  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Zugestellt":"s-paid","Storniert":"s-canc" };
 
   // Load registered users from Supabase view
   const [regUsers, setRegUsers] = useState([]);
@@ -3721,7 +3721,7 @@ function NewsletterSection({ newsletterList, deleteCustomer }) {
 // ── EBAY IMPORT SECTION ───────────────────────────────────────────────────────
 function EbayImportSection({ orders, setOrders, products, updateOrderStatus, updateOrderDetails, setOrderModal, setInvoiceModal }) {
   const ebayOrders = orders.filter(o => o.source === "ebay").sort((a,b) => b.id.localeCompare(a.id));
-  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Zugestellt":"s-paid","Storniert":"s-canc" };
 
   // Form state
   const emptyForm = {
@@ -3733,7 +3733,7 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
-  const [tab, setTab] = useState("manual"); // manual | csv | list
+  const [tab, setTab] = useState("manual"); // manual | csv | list | template
   const [csvText, setCsvText] = useState("");
   const [csvResult, setCsvResult] = useState(null);
   const sf = (k,v) => setForm(f=>({...f,[k]:v}));
@@ -3989,7 +3989,7 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
 
       {/* Tabs */}
       <div style={{display:"flex",gap:".3rem",marginBottom:"1.5rem",background:"var(--sf2)",borderRadius:"8px",padding:".2rem",width:"fit-content"}}>
-        {[["manual","Manuell eingeben"],["csv","CSV Import"],["list","eBay Bestellungen"]].map(([k,l])=>(
+        {[["manual","Manuell eingeben"],["csv","CSV Import"],["list","eBay Bestellungen"],["template","✉️ Mailvorlagen"]].map(([k,l])=>(
           <button key={k} onClick={()=>setTab(k)}
             style={{padding:".45rem 1rem",borderRadius:"6px",fontWeight:600,fontSize:".83rem",cursor:"pointer",border:"none",
               background:tab===k?"var(--sf)":"none",color:tab===k?"var(--tx)":"var(--mu)",
@@ -4231,11 +4231,250 @@ function EbayImportSection({ orders, setOrders, products, updateOrderStatus, upd
           )}
         </>
       )}
+      {/* ── TAB: MAILVORLAGEN ── */}
+      {tab === "template" && (
+        <EbayMailTemplates ebayOrders={ebayOrders}/>
+      )}
     </>
   );
 }
 
-// ── CUSTOMERS SECTION ─────────────────────────────────────────────────────────
+// ── EBAY MAIL TEMPLATES ───────────────────────────────────────────────────────
+function EbayMailTemplates({ ebayOrders }) {
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [templateType, setTemplateType] = useState("versand");
+  const [copied, setCopied] = useState("");
+
+  const templates = {
+    versand: {
+      label: "📦 Versandbestätigung",
+      subject: (o) => `Ihre Bestellung wurde versendet – Bestellnr. ${o?.ebay_order_id||o?.id||""}`,
+      body: (o) => `Guten Tag ${o?.customer?.name||""},
+
+vielen Dank für Ihren Einkauf bei uns!
+
+Wir freuen uns Ihnen mitteilen zu können, dass Ihre Bestellung heute versendet wurde.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+Ihre Bestellung
+━━━━━━━━━━━━━━━━━━━━━━━━
+${(o?.items||[]).map(i=>`• ${i.name} (Anzahl: ${i.qty})`).join("\n")}
+Gesamtbetrag: ${fmt(o?.total||0)}
+${o?.carrier&&o?.tracking_number?`
+━━━━━━━━━━━━━━━━━━━━━━━━
+Versandinformationen
+━━━━━━━━━━━━━━━━━━━━━━━━
+Versanddienstleister: ${o.carrier}
+Sendungsnummer: ${o.tracking_number}
+
+Die Sendungsnummer können Sie direkt beim Versanddienstleister zur Verfolgung nutzen.`:""}
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+Bei Fragen stehen wir Ihnen gerne über das eBay-Nachrichtensystem zur Verfügung.
+
+Mit freundlichen Grüßen
+MK-Electro · Inh. Andreas Kraus`,
+    },
+    bestaetigung: {
+      label: "✅ Bestellbestätigung",
+      subject: (o) => `Bestellbestätigung – Bestellnr. ${o?.ebay_order_id||o?.id||""}`,
+      body: (o) => `Guten Tag ${o?.customer?.name||""},
+
+vielen Dank für Ihre Bestellung! Wir haben diese erhalten und werden sie schnellstmöglich bearbeiten.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+Ihre Bestellung
+━━━━━━━━━━━━━━━━━━━━━━━━
+${(o?.items||[]).map(i=>`• ${i.name} (Anzahl: ${i.qty}) – ${fmt(i.price*i.qty)}`).join("\n")}
+Gesamtbetrag: ${fmt(o?.total||0)}
+
+Lieferadresse:
+${o?.customer?.name||""}
+${o?.customer?.street||""}
+${o?.customer?.zip||""} ${o?.customer?.city||""}
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+Wir informieren Sie sobald der Versand erfolgt ist. Bei Fragen bitte über das eBay-Nachrichtensystem melden.
+
+Mit freundlichen Grüßen
+MK-Electro · Inh. Andreas Kraus`,
+    },
+    rechnung: {
+      label: "🧾 Rechnung auf Anfrage",
+      subject: (o) => `Rechnung zu Ihrer Bestellung – Bestellnr. ${o?.ebay_order_id||o?.id||""}`,
+      body: (o) => `Guten Tag ${o?.customer?.name||""},
+
+vielen Dank für Ihre Bestellung.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+Rechnungsdetails
+━━━━━━━━━━━━━━━━━━━━━━━━
+${(o?.items||[]).map(i=>`• ${i.name} × ${i.qty} – ${fmt(i.price*i.qty)}`).join("\n")}
+Gesamtbetrag (inkl. 19% MwSt.): ${fmt(o?.total||0)}
+
+Rechnungsadresse:
+${o?.customer?.name||""}
+${o?.customer?.street||""}
+${o?.customer?.zip||""} ${o?.customer?.city||""}
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+Gerne senden wir Ihnen auf Wunsch die Rechnung per eBay-Nachricht zu. Bitte antworten Sie auf diese Nachricht.
+
+Mit freundlichen Grüßen
+MK-Electro · Inh. Andreas Kraus`,
+    },
+    feedback: {
+      label: "⭐ Feedback-Bitte",
+      subject: (o) => `Sind Sie zufrieden? – Bestellnr. ${o?.ebay_order_id||o?.id||""}`,
+      body: (o) => `Guten Tag ${o?.customer?.name||""},
+
+wir hoffen, dass Ihre Bestellung gut angekommen ist und Sie mit dem Artikel zufrieden sind.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+Ihre Bestellung
+━━━━━━━━━━━━━━━━━━━━━━━━
+${(o?.items||[]).map(i=>`• ${i.name}`).join("\n")}
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+Sollten Sie Fragen oder Anmerkungen haben, stehen wir Ihnen gerne über das eBay-Nachrichtensystem zur Verfügung.
+
+Falls Sie mit Ihrer Bestellung zufrieden sind, würden wir uns über eine positive Bewertung sehr freuen – das hilft uns sehr!
+
+Mit freundlichen Grüßen
+MK-Electro · Inh. Andreas Kraus`,
+    },
+    problem: {
+      label: "🔧 Rückfrage / Problem",
+      subject: (o) => `Rückfrage zu Ihrer Bestellung – Bestellnr. ${o?.ebay_order_id||o?.id||""}`,
+      body: (o) => `Guten Tag ${o?.customer?.name||""},
+
+bezüglich Ihrer Bestellung möchten wir kurz Rücksprache halten.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+Betroffene Bestellung
+━━━━━━━━━━━━━━━━━━━━━━━━
+${(o?.items||[]).map(i=>`• ${i.name}`).join("\n")}
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+[Hier Ihre Nachricht eintragen]
+
+Bitte antworten Sie über das eBay-Nachrichtensystem.
+
+Mit freundlichen Grüßen
+MK-Electro · Inh. Andreas Kraus`,
+    },
+  };
+
+  const tpl = templates[templateType];
+  const currentSubject = tpl.subject(selectedOrder);
+  const currentBody = tpl.body(selectedOrder);
+
+  const copy = (text, key) => {
+    navigator.clipboard.writeText(text);
+    setCopied(key);
+    setTimeout(() => setCopied(""), 2000);
+  };
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:"1.5rem",alignItems:"start"}}>
+
+      {/* Left panel */}
+      <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+        <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"12px",padding:"1rem"}}>
+          <div style={{fontSize:".7rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:".65rem"}}>Vorlagentyp</div>
+          {Object.entries(templates).map(([k,t])=>(
+            <button key={k} onClick={()=>{setTemplateType(k);setCopied("");}}
+              style={{display:"block",width:"100%",textAlign:"left",padding:".5rem .75rem",marginBottom:".3rem",
+                borderRadius:"7px",border:"1px solid",cursor:"pointer",fontSize:".82rem",fontWeight:600,
+                borderColor:templateType===k?"var(--acc)":"var(--br)",
+                background:templateType===k?"rgba(232,160,32,.08)":"transparent",
+                color:templateType===k?"var(--acc)":"var(--tx)"}}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"12px",padding:"1rem"}}>
+          <div style={{fontSize:".7rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:"1px",marginBottom:".65rem"}}>Bestellung wählen</div>
+          <button onClick={()=>setSelectedOrder(null)}
+            style={{display:"block",width:"100%",textAlign:"left",padding:".4rem .7rem",borderRadius:"6px",
+              border:"1px solid",marginBottom:".25rem",cursor:"pointer",fontSize:".75rem",
+              borderColor:!selectedOrder?"var(--acc)":"var(--br)",
+              background:!selectedOrder?"rgba(232,160,32,.08)":"transparent",color:"var(--mu)"}}>
+            Leere Vorlage
+          </button>
+          <div style={{maxHeight:"200px",overflowY:"auto",display:"flex",flexDirection:"column",gap:".25rem"}}>
+            {ebayOrders.length===0 && <div style={{fontSize:".75rem",color:"var(--mu)",padding:".4rem"}}>Noch keine eBay-Bestellungen</div>}
+            {ebayOrders.map(o=>(
+              <button key={o.id} onClick={()=>{setSelectedOrder(o);setCopied("");}}
+                style={{textAlign:"left",padding:".45rem .7rem",borderRadius:"6px",border:"1px solid",cursor:"pointer",
+                  fontSize:".75rem",borderColor:selectedOrder?.id===o.id?"var(--acc)":"var(--br)",
+                  background:selectedOrder?.id===o.id?"rgba(232,160,32,.08)":"transparent"}}>
+                <div style={{fontWeight:600,color:"var(--tx)",fontSize:".8rem"}}>{o.customer?.name||"Unbekannt"}</div>
+                <div style={{color:"var(--mu)",fontFamily:"monospace",fontSize:".68rem"}}>{o.ebay_order_id||o.id}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{background:"rgba(59,130,246,.06)",border:"1px solid rgba(59,130,246,.15)",borderRadius:"10px",padding:".8rem .9rem",fontSize:".72rem",lineHeight:1.8,color:"var(--mu)"}}>
+          <strong style={{color:"var(--inf)",display:"block",marginBottom:".25rem"}}>ℹ️ eBay-Richtlinien</strong>
+          ✅ Nur über eBay-Nachrichtensystem senden<br/>
+          ✅ Keine externen Links erlaubt<br/>
+          ✅ Keine direkte E-Mail/Tel.-Weitergabe<br/>
+          ✅ Kein Direktverkauf außerhalb eBay<br/>
+          ❌ Keine Werbung für andere Plattformen
+        </div>
+      </div>
+
+      {/* Right: Preview */}
+      <div style={{background:"var(--sf)",border:"1px solid var(--br)",borderRadius:"12px",padding:"1.2rem"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem",flexWrap:"wrap",gap:".5rem"}}>
+          <div style={{fontWeight:700,fontSize:".88rem"}}>Vorschau & Kopieren</div>
+          <div style={{display:"flex",gap:".4rem"}}>
+            <button className="btn btn-o btn-sm" onClick={()=>copy(currentSubject,"subject")}>
+              {copied==="subject" ? <><I d={ICONS.check} size={12}/> Kopiert!</> : "Betreff kopieren"}
+            </button>
+            <button className="btn btn-p btn-sm" onClick={()=>copy(currentBody,"body")} style={{minWidth:"140px",justifyContent:"center"}}>
+              {copied==="body" ? <><I d={ICONS.check} size={12}/> Kopiert!</> : <><I d={ICONS.link} size={12}/> Text kopieren</>}
+            </button>
+          </div>
+        </div>
+
+        <div style={{marginBottom:".8rem"}}>
+          <div style={{fontSize:".68rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:".5px",marginBottom:".3rem"}}>Betreff</div>
+          <div style={{background:"var(--sf2)",borderRadius:"7px",padding:".55rem .8rem",fontSize:".82rem",
+            fontFamily:"monospace",display:"flex",justifyContent:"space-between",alignItems:"center",gap:".5rem",
+            border:"1px solid var(--br)"}}>
+            <span style={{flex:1}}>{currentSubject}</span>
+            <button className="btn btn-o btn-sm" style={{padding:".2rem .45rem",flexShrink:0}} onClick={()=>copy(currentSubject,"subject")}>
+              <I d={ICONS.link} size={11}/>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <div style={{fontSize:".68rem",fontWeight:700,color:"var(--mu)",textTransform:"uppercase",letterSpacing:".5px",marginBottom:".3rem"}}>Nachrichtentext</div>
+          <textarea readOnly value={currentBody}
+            style={{width:"100%",background:"var(--sf2)",border:"1px solid var(--br)",borderRadius:"7px",
+              padding:".75rem .85rem",fontSize:".79rem",lineHeight:1.8,fontFamily:"monospace",
+              resize:"vertical",minHeight:"400px",color:"var(--tx)",boxSizing:"border-box",outline:"none"}}/>
+        </div>
+
+        <div style={{marginTop:".85rem",padding:".75rem .9rem",background:"rgba(34,197,94,.06)",
+          border:"1px solid rgba(34,197,94,.15)",borderRadius:"8px",fontSize:".75rem",lineHeight:1.8,color:"var(--mu)"}}>
+          <strong style={{color:"var(--ok)",display:"block",marginBottom:".2rem"}}>📋 Anleitung</strong>
+          1. Bestellung wählen → Vorlage wird automatisch befüllt<br/>
+          2. „Text kopieren" klicken<br/>
+          3. eBay öffnen → Bestellung → Käufer kontaktieren → Text einfügen<br/>
+          4. Betreff separat kopieren & einfügen → Absenden
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CustomersSection({ orders, regUsers, regLoading, setOrderModal, setInvoiceModal, deleteCustomer, deleteUserById }) {
   const [tab, setTab] = useState("registered"); // registered | buyers
   const [search, setSearch] = useState("");
@@ -4244,7 +4483,7 @@ function CustomersSection({ orders, regUsers, regLoading, setOrderModal, setInvo
   const [confirmDel, setConfirmDel] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Storniert":"s-canc" };
+  const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Zugestellt":"s-paid","Storniert":"s-canc" };
 
   // ── REGISTERED USERS (from Supabase auth) ──────────────────────────────────
   const filteredUsers = regUsers.filter(u => {
