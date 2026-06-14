@@ -2294,7 +2294,7 @@ function ContactPage({ setView }) {
             </div>
             <div className="cinfo-row">
               <div className="cinfo-icon"><I d={ICONS.phone} size={16}/></div>
-              <div><h4>Telefon</h4><p></p></div>
+              <div><h4>Telefon</h4><p>+49 (0) 6202 · 123456</p></div>
             </div>
             <div className="cinfo-row">
               <div className="cinfo-icon"><I d={ICONS.truck} size={16}/></div>
@@ -2374,7 +2374,7 @@ function ImpressumPage() {
           <div className="imp-card-icon"><I d={ICONS.phone} size={18}/></div>
           <div>
             <h3>Kontakt</h3>
-            <p><br/>
+            <p>Telefon: +49 (0) 6202 · 123456<br/>
             E-Mail: <a href="mailto:shop@mk-electro.com" style={{color:"var(--acc)"}}>shop@mk-electro.com</a></p>
           </div>
         </div>
@@ -2383,7 +2383,7 @@ function ImpressumPage() {
           <div>
             <h3>Steuerliche Angaben</h3>
             <p>Umsatzsteuer-Identifikationsnummer gemäß § 27a UStG:<br/>
-            <strong style={{color:"var(--tx)"}}>DE 211 477 305</strong></p>
+            <strong style={{color:"var(--tx)"}}>DE 123 456 789</strong></p>
           </div>
         </div>
 
@@ -2474,7 +2474,7 @@ function AGBPage({ setView }) {
           <p>Um Ihr Widerrufsrecht auszuüben, müssen Sie uns mittels einer eindeutigen Erklärung (z. B. ein mit der Post versandter Brief, Telefax oder E-Mail) über Ihren Entschluss, diesen Vertrag zu widerrufen, informieren:</p>
           <div className="legal-highlight">
             <p>MK-Electro · Inh. Andreas Kraus · Von-Drais-Straße 3a · 68775 Ketsch<br/>
-            E-Mail: shop@mk-electro.com · </p>
+            E-Mail: shop@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
           </div>
           <p>Zur Wahrung der Widerrufsfrist reicht es aus, dass Sie die Mitteilung über die Ausübung des Widerrufsrechts vor Ablauf der Widerrufsfrist absenden.</p>
           <h3>Folgen des Widerrufs</h3>
@@ -2529,7 +2529,7 @@ function DatenschutzPage() {
           <h2>§ 1 Verantwortlicher</h2>
           <div className="legal-highlight">
             <p>MK-Electro · Inh. Andreas Kraus · Von-Drais-Straße 3a · 68775 Ketsch<br/>
-            E-Mail: shop@mk-electro.com · </p>
+            E-Mail: shop@mk-electro.com · Tel.: +49 (0) 6202 · 123456</p>
           </div>
         </div>
         <div className="legal-section">
@@ -2640,7 +2640,7 @@ function ShopView({ products, categories, category, search, setCategory, setSear
           <div className="footer-col">
             <h4>Kontakt</h4>
             <p>shop@mk-electro.com</p>
-            <p></p>
+            <p>+49 (0) 6202 · 123456</p>
             <p>Mo–Fr: 9:00–17:00 Uhr</p>
           </div>
         </div>
@@ -2743,7 +2743,42 @@ function AnalyticsSection() {
 
 // ── BACKEND VIEW ──────────────────────────────────────────────────────────────
 // ── BACKEND VIEW ──────────────────────────────────────────────────────────────
-function BackendView({ products, orders, setOrders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, updateOrderDetails, deleteCustomer }) {
+function BackendView({ products, setProducts, orders, setOrders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, updateOrderDetails, deleteCustomer }) {
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
+
+  const syncProductsFromCode = async () => {
+    setSyncing(true); setSyncMsg("");
+    try {
+      const existingSkus = new Map(products.map(p => [p.sku, p.id]));
+      let updated = 0, failed = 0;
+      for (const dp of DEFAULT_PRODUCTS) {
+        if (!dp.sku || !existingSkus.has(dp.sku)) continue;
+        const id = existingSkus.get(dp.sku);
+        const row = {
+          stock: dp.stock, stock_external: dp.stockExternal,
+          price: dp.price, ek: dp.ek, shipping: dp.shipping,
+          ean: dp.ean || "", supplier: dp.supplier || "",
+          delivery: dp.delivery, category: dp.category,
+        };
+        const { error } = await supabase.from("products").update(row).eq("id", id);
+        if (error) { failed++; continue; }
+        updated++;
+        setProducts(ps => ps.map(p => p.id === id ? {
+          ...p, stock: dp.stock, stockExternal: dp.stockExternal,
+          price: dp.price, ek: dp.ek, shipping: dp.shipping,
+          ean: dp.ean||"", supplier: dp.supplier||"",
+          delivery: dp.delivery, category: dp.category,
+        } : p));
+      }
+      setSyncMsg(`✅ ${updated} Produkte synchronisiert${failed?`, ${failed} Fehler`:""}`);
+    } catch(e) {
+      setSyncMsg("❌ Fehler: " + e.message);
+    }
+    setSyncing(false);
+    setTimeout(()=>setSyncMsg(""), 5000);
+  };
+
   const revenue = orders.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
   const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Zugestellt":"s-paid","Storniert":"s-canc" };
 
@@ -2897,6 +2932,11 @@ function BackendView({ products, orders, setOrders, beSection, setBeSection, pro
                   </button>
                 ))}
                 <button className="btn btn-p btn-sm" onClick={()=>setProductModal({})}><I d={ICONS.plus} size={14}/> Neues Produkt</button>
+                <button className="btn btn-o btn-sm" onClick={syncProductsFromCode} disabled={syncing}
+                  title="Schreibt Bestände, Preise, EAN etc. aus dem Code für alle vorhandenen SKUs nach Supabase">
+                  {syncing ? "Synchronisiert…" : <><I d={ICONS.upload} size={14}/> Mit Code-Daten synchronisieren</>}
+                </button>
+                {syncMsg && <span style={{fontSize:".75rem",color:"var(--ok)",alignSelf:"center"}}>{syncMsg}</span>}
               </div>
             </div>
             <div className="tbl-wrap">
@@ -3136,7 +3176,7 @@ function CustomerAuthPage({ onLogin, setView }) {
               </div>
               <div className="fg">
                 <label>Telefon (optional)</label>
-                <input className="fi" type="tel" placeholder="+49 12345 …" value={form.phone} onChange={e=>sf("phone",e.target.value)}/>
+                <input className="fi" type="tel" placeholder="+49 6202 …" value={form.phone} onChange={e=>sf("phone",e.target.value)}/>
               </div>
             </div>
 
@@ -5094,7 +5134,7 @@ export default function App() {
         )}
         {view==="backend" && beAuth && (
           <BackendView
-            products={products} orders={orders} setOrders={setOrders} beSection={beSection} setBeSection={setBeSection}
+            products={products} setProducts={setProducts} orders={orders} setOrders={setOrders} beSection={beSection} setBeSection={setBeSection}
             productModal={productModal} setProductModal={setProductModal}
             orderModal={orderModal} setOrderModal={setOrderModal}
             invoiceModal={invoiceModal} setInvoiceModal={setInvoiceModal}
