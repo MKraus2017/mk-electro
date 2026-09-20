@@ -17,7 +17,6 @@ function rowToProduct(r) {
     delivery: r.delivery||"", sku: r.sku||"",
     images: r.images||[], description: r.description||"",
     supplier: r.supplier||"", ean: r.ean||"",
-    hidden: r.hidden||false,
   };
 }
 // Map app product → Supabase row shape
@@ -28,7 +27,6 @@ function productToRow(p) {
     stock_external: p.stockExternal, delivery: p.delivery,
     sku: p.sku, images: p.images, description: p.description,
     supplier: p.supplier||"", ean: p.ean||"",
-    hidden: p.hidden||false,
   };
 }
 // Map Supabase row → app order shape
@@ -954,9 +952,9 @@ function ProductDetailModal({ p, onClose, onAddToCart }) {
               <div className="pd-price">{fmt(p.price)}</div>
               <div className="pd-vat">inkl. 19% MwSt. · Versandkosten werden im Warenkorb berechnet</div>
             </div>
-            <button className="btn btn-p" style={{width:"100%",justifyContent:"center",fontSize:"1rem",marginTop:".85rem",padding:".75rem",opacity:total===0?.5:1}}
+            <button className="btn btn-p" style={{width:"100%",justifyContent:"center",fontSize:"1rem",marginTop:".85rem",padding:".75rem"}}
               onClick={() => { onAddToCart(p); onClose(); }}
-              disabled={total===0}>
+              disabled={total===0} style={{opacity:total===0?.5:1,width:"100%",justifyContent:"center",fontSize:"1rem",marginTop:".85rem",padding:".75rem"}}>
               <I d={ICONS.cart} size={18}/> In den Warenkorb
             </button>
             {total===0 && (
@@ -2643,15 +2641,15 @@ function ShopView({ products, categories, category, search, setCategory, setSear
           </div>
           <div className="footer-col">
             <h4>Shop</h4>
-            <button className="nb" style={{cursor:"pointer",color:"inherit",textDecoration:"underline",fontSize:"inherit"}} onClick={()=>setView("shop")}>Alle Produkte</button>
-            <button className="nb" style={{cursor:"pointer",color:"inherit",textDecoration:"underline",fontSize:"inherit"}} onClick={()=>setView("contact")}>Kontakt</button>
-            <button className="nb" style={{cursor:"pointer",color:"inherit",textDecoration:"underline",fontSize:"inherit"}} onClick={()=>setView("orderlookup")}>Bestellung verfolgen</button>
+            <a onClick={()=>setView("shop")} style={{cursor:"pointer"}}>Alle Produkte</a>
+            <a onClick={()=>setView("contact")} style={{cursor:"pointer"}}>Kontakt</a>
+            <a onClick={()=>setView("orderlookup")} style={{cursor:"pointer"}}>Bestellung verfolgen</a>
           </div>
           <div className="footer-col">
             <h4>Rechtliches</h4>
-            <button className="nb" style={{cursor:"pointer",color:"inherit",textDecoration:"underline",fontSize:"inherit"}} onClick={()=>setView("impressum")}>Impressum</button>
-            <button className="nb" style={{cursor:"pointer",color:"inherit",textDecoration:"underline",fontSize:"inherit"}} onClick={()=>setView("agb")}>AGB</button>
-            <button className="nb" style={{cursor:"pointer",color:"inherit",textDecoration:"underline",fontSize:"inherit"}} onClick={()=>setView("datenschutz")}>Datenschutz</button>
+            <a onClick={()=>setView("impressum")} style={{cursor:"pointer"}}>Impressum</a>
+            <a onClick={()=>setView("agb")} style={{cursor:"pointer"}}>AGB</a>
+            <a onClick={()=>setView("datenschutz")} style={{cursor:"pointer"}}>Datenschutz</a>
           </div>
           <div className="footer-col">
             <h4>Kontakt</h4>
@@ -2759,7 +2757,7 @@ function AnalyticsSection() {
 
 // ── BACKEND VIEW ──────────────────────────────────────────────────────────────
 // ── BACKEND VIEW ──────────────────────────────────────────────────────────────
-function BackendView({ products, setProducts, orders, setOrders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, restoreProduct, deleteProductPermanently, updateOrderStatus, updateOrderDetails, deleteCustomer }) {
+function BackendView({ products, setProducts, orders, setOrders, beSection, setBeSection, productModal, setProductModal, orderModal, setOrderModal, invoiceModal, setInvoiceModal, saveProduct, deleteProduct, updateOrderStatus, updateOrderDetails, deleteCustomer }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
 
@@ -2798,77 +2796,11 @@ function BackendView({ products, setProducts, orders, setOrders, beSection, setB
   const revenue = orders.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
   const statusClass = { "Neu":"s-new","Bezahlt":"s-paid","Versendet":"s-ship","Zugestellt":"s-paid","Storniert":"s-canc" };
 
-  // ── BACKUP / RESTORE (Backend → Supabase, niemals umgekehrt) ──────────────
-  const [restoring, setRestoring] = useState(false);
-  const [backupMsg, setBackupMsg] = useState("");
-  const restoreFileRef = useRef();
-
-  const exportBackup = () => {
-    const backup = {
-      created_at: new Date().toISOString(),
-      shop: "mk-electro.com",
-      product_count: products.length,
-      products: products.map(p => ({
-        id: p.id, sku: p.sku, name: p.name, category: p.category,
-        price: p.price, ek: p.ek, shipping: p.shipping,
-        stock: p.stock, stockExternal: p.stockExternal,
-        delivery: p.delivery, images: p.images, description: p.description,
-        supplier: p.supplier, ean: p.ean, hidden: p.hidden || false,
-      })),
-    };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
-    a.href = url; a.download = `mk-electro-backup-${ts}.json`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setBackupMsg(`✅ Backup mit ${products.length} Produkten heruntergeladen`);
-    setTimeout(()=>setBackupMsg(""), 4000);
-  };
-
-  const restoreBackup = async (file) => {
-    setRestoring(true); setBackupMsg("");
-    try {
-      const text = await file.text();
-      const backup = JSON.parse(text);
-      if (!backup.products || !Array.isArray(backup.products)) throw new Error("Ungültiges Backup-Format");
-
-      let updated = 0, inserted = 0, failed = 0;
-      for (const bp of backup.products) {
-        const row = {
-          name: bp.name, category: bp.category, price: bp.price, ek: bp.ek,
-          shipping: bp.shipping, stock: bp.stock, stock_external: bp.stockExternal,
-          delivery: bp.delivery, sku: bp.sku, images: bp.images, description: bp.description,
-          supplier: bp.supplier || "", ean: bp.ean || "", hidden: bp.hidden || false,
-        };
-        if (bp.id) {
-          const { error } = await supabase.from("products").update(row).eq("id", bp.id);
-          if (error) { failed++; continue; }
-          updated++;
-        } else {
-          const { error } = await supabase.from("products").insert(row);
-          if (error) { failed++; continue; }
-          inserted++;
-        }
-      }
-      // Reload products from Supabase to reflect restore
-      const { data: fresh } = await supabase.from("products").select("*").order("id", { ascending: true });
-      if (fresh) setProducts(fresh.map(rowToProduct));
-
-      setBackupMsg(`✅ Wiederherstellung: ${updated} aktualisiert, ${inserted} neu${failed?`, ${failed} Fehler`:""}`);
-    } catch(e) {
-      setBackupMsg("❌ Fehler beim Wiederherstellen: " + e.message);
-    }
-    setRestoring(false);
-    setTimeout(()=>setBackupMsg(""), 6000);
-  };
-
   // Load registered users from Supabase view
   const [regUsers, setRegUsers] = useState([]);
   const [regLoading, setRegLoading] = useState(true);
   const [nlList, setNlList] = useState([]);
-  const [, setNlLoading] = useState(true);
+  const [nlLoading, setNlLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -3019,20 +2951,6 @@ function BackendView({ products, setProducts, orders, setOrders, beSection, setB
                   {syncing ? "Synchronisiert…" : <><I d={ICONS.upload} size={14}/> Mit Code-Daten synchronisieren</>}
                 </button>
                 {syncMsg && <span style={{fontSize:".75rem",color:"var(--ok)",alignSelf:"center"}}>{syncMsg}</span>}
-
-                <span style={{width:"1px",height:"24px",background:"var(--br)",alignSelf:"center"}}/>
-
-                <button className="btn btn-o btn-sm" onClick={exportBackup}
-                  title="Lädt alle Produkte (inkl. ausgeblendeter) als JSON-Datei herunter">
-                  <I d={ICONS.invoice} size={14}/> Backup herunterladen
-                </button>
-                <input ref={restoreFileRef} type="file" accept="application/json" style={{display:"none"}}
-                  onChange={e=>{ if(e.target.files[0]) restoreBackup(e.target.files[0]); e.target.value=""; }}/>
-                <button className="btn btn-o btn-sm" onClick={()=>restoreFileRef.current?.click()} disabled={restoring}
-                  title="Backup-Datei einlesen und in Supabase zurückschreiben (Backend → DB)">
-                  {restoring ? "Wird wiederhergestellt…" : <><I d={ICONS.box} size={14}/> Backup wiederherstellen</>}
-                </button>
-                {backupMsg && <span style={{fontSize:".75rem",color:backupMsg.startsWith("❌")?"var(--err)":"var(--ok)",alignSelf:"center"}}>{backupMsg}</span>}
               </div>
             </div>
             <div className="tbl-wrap">
@@ -3046,13 +2964,10 @@ function BackendView({ products, setProducts, orders, setOrders, beSection, setB
                     const mColor = !m ? "var(--mu)" : m.pct >= 25 ? "var(--ok)" : m.pct >= 15 ? "var(--acc)" : "var(--err)";
                     const supplierColor = p.supplier === "dbreactor" ? "var(--inf)" : p.supplier === "Mediaelectronics Spain" ? "var(--acc)" : "var(--mu)";
                     return (
-                      <tr key={p.id} style={p.hidden?{opacity:.45}:undefined}>
+                      <tr key={p.id}>
                         <td><img className="thumb" src={imgs[0]||"https://placehold.co/36x36/161b23/6e7d96?text=?"} alt="" onError={e=>e.target.src="https://placehold.co/36x36/161b23/6e7d96?text=?"}/></td>
                         <td>
-                          <div style={{fontWeight:600,fontSize:".83rem",display:"flex",alignItems:"center",gap:".4rem"}}>
-                            {p.name}
-                            {p.hidden && <span style={{fontSize:".65rem",fontWeight:700,color:"var(--mu)",background:"var(--sf2)",border:"1px solid var(--br)",borderRadius:"4px",padding:"0 .35rem"}}>AUSGEBLENDET</span>}
-                          </div>
+                          <div style={{fontWeight:600,fontSize:".83rem"}}>{p.name}</div>
                           {p.sku && <div style={{fontSize:".68rem",color:"var(--mu)",fontFamily:"monospace"}}>#{p.sku}</div>}
                         </td>
                         <td style={{color:"var(--mu)",fontSize:".8rem"}}>{p.category}</td>
@@ -3089,20 +3004,7 @@ function BackendView({ products, setProducts, orders, setOrders, beSection, setB
                         <td>
                           <div className="acts">
                             <button className="btn btn-o btn-sm" onClick={()=>setProductModal(p)}><I d={ICONS.edit} size={12}/></button>
-                            {p.hidden ? (
-                              <>
-                                <button className="btn btn-p btn-sm" onClick={()=>restoreProduct(p.id)} title="Wiederherstellen">
-                                  <I d={ICONS.check} size={12}/>
-                                </button>
-                                <button className="btn btn-d btn-sm" onClick={()=>{if(confirm("Endgültig löschen? Dies kann nicht rückgängig gemacht werden."))deleteProductPermanently(p.id)}} title="Endgültig löschen">
-                                  <I d={ICONS.trash} size={12}/>
-                                </button>
-                              </>
-                            ) : (
-                              <button className="btn btn-d btn-sm" onClick={()=>{if(confirm("Produkt ausblenden? Es bleibt in der Datenbank erhalten und kann wiederhergestellt werden."))deleteProduct(p.id)}} title="Ausblenden">
-                                <I d={ICONS.trash} size={12}/>
-                              </button>
-                            )}
+                            <button className="btn btn-d btn-sm" onClick={()=>{if(confirm("Löschen?"))deleteProduct(p.id)}}><I d={ICONS.trash} size={12}/></button>
                           </div>
                         </td>
                       </tr>
@@ -3115,128 +3017,21 @@ function BackendView({ products, setProducts, orders, setOrders, beSection, setB
         )}
 
         {/* ORDERS */}
-        {beSection==="orders" && (()=>{
-          const [ordSearch, setOrdSearch] = React.useState("");
-          const [ordSort, setOrdSort] = React.useState("date_desc");
-          const [ordStatus, setOrdStatus] = React.useState("Alle");
-          const [ordSource, setOrdSource] = React.useState("Alle");
-
-          const STATUS_OPTIONS = ["Alle","Neu","Bezahlt","Versendet","Zugestellt","Storniert"];
-          const SOURCE_OPTIONS = ["Alle","shop","ebay"];
-
-          const filtered = orders
-            .filter(o => {
-              const q = ordSearch.toLowerCase();
-              const matchSearch = !q ||
-                o.id?.toLowerCase().includes(q) ||
-                o.customer?.name?.toLowerCase().includes(q) ||
-                o.customer?.email?.toLowerCase().includes(q) ||
-                o.ebay_order_id?.toLowerCase().includes(q) ||
-                (o.items||[]).some(i=>i.name?.toLowerCase().includes(q));
-              const matchStatus = ordStatus==="Alle" || o.status===ordStatus;
-              const matchSource = ordSource==="Alle" || o.source===ordSource;
-              return matchSearch && matchStatus && matchSource;
-            })
-            .sort((a,b) => {
-              switch(ordSort) {
-                case "date_desc": return b.id.localeCompare(a.id);
-                case "date_asc":  return a.id.localeCompare(b.id);
-                case "total_desc":return b.total - a.total;
-                case "total_asc": return a.total - b.total;
-                case "name_asc":  return (a.customer?.name||"").localeCompare(b.customer?.name||"");
-                case "status":    return (a.status||"").localeCompare(b.status||"");
-                default: return 0;
-              }
-            });
-
-          const totalRevenue = filtered.filter(o=>o.status!=="Storniert").reduce((s,o)=>s+o.total,0);
-
-          return (
+        {beSection==="orders" && (
           <>
-            <div className="be-hdr">
-              <div>
-                <div className="be-ttl">Bestellungen</div>
-                <div style={{fontSize:".78rem",color:"var(--mu)",marginTop:".15rem"}}>
-                  {filtered.length} von {orders.length} · Umsatz: <strong style={{color:"var(--acc)"}}>{fmt(totalRevenue)}</strong>
-                </div>
-              </div>
-            </div>
-
-            {/* Suche + Filter + Sort */}
-            <div style={{display:"flex",gap:".65rem",marginBottom:"1rem",flexWrap:"wrap",alignItems:"center"}}>
-              {/* Suche */}
-              <div style={{position:"relative",flex:"1",minWidth:"200px"}}>
-                <I d={ICONS.search} size={14} style={{position:"absolute",left:".7rem",top:"50%",transform:"translateY(-50%)",color:"var(--mu)",pointerEvents:"none"}}/>
-                <input className="fi" style={{paddingLeft:"2.1rem",fontSize:".84rem"}}
-                  placeholder="Suchen: Name, E-Mail, Bestell-Nr., Artikel…"
-                  value={ordSearch} onChange={e=>setOrdSearch(e.target.value)}/>
-              </div>
-
-              {/* Status Filter */}
-              <select className="fi" style={{width:"auto",fontSize:".82rem",minWidth:"130px"}}
-                value={ordStatus} onChange={e=>setOrdStatus(e.target.value)}>
-                {STATUS_OPTIONS.map(s=><option key={s} value={s}>{s==="Alle"?"Alle Status":s}</option>)}
-              </select>
-
-              {/* Quelle Filter */}
-              <select className="fi" style={{width:"auto",fontSize:".82rem",minWidth:"120px"}}
-                value={ordSource} onChange={e=>setOrdSource(e.target.value)}>
-                {SOURCE_OPTIONS.map(s=><option key={s} value={s}>{s==="Alle"?"Alle Quellen":s==="shop"?"🛒 Shop":"🔴 eBay"}</option>)}
-              </select>
-
-              {/* Sortierung */}
-              <select className="fi" style={{width:"auto",fontSize:".82rem",minWidth:"170px"}}
-                value={ordSort} onChange={e=>setOrdSort(e.target.value)}>
-                <option value="date_desc">📅 Datum: Neueste zuerst</option>
-                <option value="date_asc">📅 Datum: Älteste zuerst</option>
-                <option value="total_desc">💶 Betrag: Höchste zuerst</option>
-                <option value="total_asc">💶 Betrag: Niedrigste zuerst</option>
-                <option value="name_asc">👤 Name: A–Z</option>
-                <option value="status">📋 Status</option>
-              </select>
-
-              {/* Reset */}
-              {(ordSearch||ordStatus!=="Alle"||ordSource!=="Alle") && (
-                <button className="btn btn-o btn-sm" onClick={()=>{setOrdSearch("");setOrdStatus("Alle");setOrdSource("Alle");}}>
-                  ✕ Zurücksetzen
-                </button>
-              )}
-            </div>
-
+            <div className="be-hdr"><div className="be-ttl">Bestellungen</div></div>
             <div className="tbl-wrap">
               <table className="tbl">
-                <thead>
-                  <tr>
-                    <th style={{cursor:"pointer"}} onClick={()=>setOrdSort(s=>s==="date_desc"?"date_asc":"date_desc")}>
-                      Bestell-Nr. {ordSort==="date_desc"?"↓":ordSort==="date_asc"?"↑":""}
-                    </th>
-                    <th>Datum</th>
-                    <th style={{cursor:"pointer"}} onClick={()=>setOrdSort("name_asc")}>
-                      Kunde {ordSort==="name_asc"?"↑":""}
-                    </th>
-                    <th>E-Mail</th>
-                    <th>Zahlung</th>
-                    <th style={{cursor:"pointer"}} onClick={()=>setOrdSort(s=>s==="total_desc"?"total_asc":"total_desc")}>
-                      Summe {ordSort==="total_desc"?"↓":ordSort==="total_asc"?"↑":""}
-                    </th>
-                    <th style={{cursor:"pointer"}} onClick={()=>setOrdSort("status")}>
-                      Status {ordSort==="status"?"↑":""}
-                    </th>
-                    <th>Aktionen</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>Bestell-Nr.</th><th>Datum</th><th>Kunde</th><th>E-Mail</th><th>Zahlung</th><th>Summe</th><th>Status</th><th>Aktionen</th></tr></thead>
                 <tbody>
-                  {filtered.map(o=>(
+                  {orders.map(o=>(
                     <tr key={o.id}>
-                      <td>
-                        <div style={{fontFamily:"monospace",color:"var(--acc)",fontSize:".78rem"}}>{o.id}</div>
-                        {o.source==="ebay" && <span style={{fontSize:".65rem",fontWeight:700,color:"#e53238",background:"#e5323818",border:"1px solid #e5323830",borderRadius:"3px",padding:"0 .3rem"}}>eBay</span>}
-                      </td>
-                      <td style={{fontSize:".83rem"}}>{o.date}</td>
+                      <td style={{fontFamily:"monospace",color:"var(--acc)",fontSize:".78rem"}}>{o.id}</td>
+                      <td>{o.date}</td>
                       <td style={{fontWeight:600}}>{o.customer?.name}</td>
                       <td style={{color:"var(--mu)",fontSize:".78rem"}}>{o.customer?.email}</td>
                       <td style={{textTransform:"capitalize",color:"var(--mu)",fontSize:".8rem"}}>{o.payment}</td>
-                      <td style={{fontWeight:700,color:"var(--acc)"}}>{fmt(o.total)}</td>
+                      <td style={{fontWeight:700}}>{fmt(o.total)}</td>
                       <td>
                         <span className={`spill ${statusClass[o.status]||"s-new"}`}>{o.status}</span>
                         {o.carrier && <div style={{fontSize:".7rem",color:"var(--mu)",marginTop:".15rem"}}><I d={ICONS.truck} size={10}/> {o.carrier}</div>}
@@ -3254,17 +3049,12 @@ function BackendView({ products, setProducts, orders, setOrders, beSection, setB
                       </td>
                     </tr>
                   ))}
-                  {filtered.length===0 && (
-                    <tr><td colSpan={8} style={{color:"var(--mu)",textAlign:"center",padding:"2rem"}}>
-                      {orders.length===0 ? "Noch keine Bestellungen." : "Keine Bestellungen gefunden."}
-                    </td></tr>
-                  )}
+                  {orders.length===0 && <tr><td colSpan={8} style={{color:"var(--mu)",textAlign:"center",padding:"2rem"}}>Noch keine Bestellungen.</td></tr>}
                 </tbody>
               </table>
             </div>
           </>
-          );
-        })()}
+        )}
         {/* CUSTOMERS */}
         {beSection==="ebay" && (
           <EbayImportSection orders={orders} setOrders={setOrders} products={products}
@@ -3821,7 +3611,7 @@ function CustomerAccountPage({ user, orders, onLogout, setView }) {
                     </div>
                   )}
                   {(o.items||[]).length <= 2 && (
-                    <div style={{fontSize:".72rem",color:"var(--acc)",marginTop:".35rem",cursor:"pointer"}} onClick={()=>setExpandedOrder(o.id)}>
+                    <div style={{fontSize:".72rem",color:"var(--mu)",marginTop:".35rem",cursor:"pointer",color:"var(--acc)"}} onClick={()=>setExpandedOrder(o.id)}>
                       Details & Rechnung anzeigen →
                     </div>
                   )}
@@ -5067,7 +4857,7 @@ export default function App() {
   const BE_PASSWORD = "MKE2026!";
   // Customer Auth
   const [custUser, setCustUser] = useState(null);
-  const [, setAuthChecked] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const [dbError, setDbError] = useState(null);
 
@@ -5105,8 +4895,6 @@ export default function App() {
           setProducts((seeded||[]).map(rowToProduct));
         } else {
           // DB hat Produkte → prüfe ob neue DEFAULT_PRODUCTS fehlen (per SKU)
-          // Hinweis: ausgeblendete (hidden=true) Produkte bleiben in der DB und zählen
-          // als "vorhanden" — sie werden also NICHT erneut eingefügt.
           const existingSkus = new Set(prods.map(p => p.sku).filter(Boolean));
           const existingNames = new Set(prods.map(p => p.name));
           const missing = DEFAULT_PRODUCTS.filter(p =>
@@ -5145,7 +4933,7 @@ export default function App() {
     const q = search.toLowerCase();
     const inSearch = !q || p.name.toLowerCase().includes(q) || (p.description||"").toLowerCase().includes(q) || (p.sku||"").toLowerCase().includes(q);
     const inStock = (parseInt(p.stock)||0) + (parseInt(p.stockExternal)||0) > 0;
-    return inCat && inSearch && inStock && !p.hidden;
+    return inCat && inSearch && inStock;
   });
 
   const addToCart = (product) => {
@@ -5204,24 +4992,9 @@ export default function App() {
   };
 
   const deleteProduct = async (id) => {
-    // Soft-delete: nur ausblenden, Daten (Bilder, EAN etc.) bleiben erhalten
-    try {
-      await supabase.from("products").update({ hidden: true }).eq("id", id);
-    } catch(e) { console.error("Produkt ausblenden fehlgeschlagen:", e); }
-    setProducts(ps => ps.map(p => p.id === id ? { ...p, hidden: true } : p));
-  };
-
-  const restoreProduct = async (id) => {
-    try {
-      await supabase.from("products").update({ hidden: false }).eq("id", id);
-    } catch(e) { console.error("Produkt wiederherstellen fehlgeschlagen:", e); }
-    setProducts(ps => ps.map(p => p.id === id ? { ...p, hidden: false } : p));
-  };
-
-  const deleteProductPermanently = async (id) => {
     try {
       await supabase.from("products").delete().eq("id", id);
-    } catch(e) { console.error("Produkt endgültig löschen fehlgeschlagen:", e); }
+    } catch(e) { console.error("Produkt löschen fehlgeschlagen:", e); }
     setProducts(ps => ps.filter(p => p.id !== id));
   };
 
@@ -5379,7 +5152,7 @@ export default function App() {
             productModal={productModal} setProductModal={setProductModal}
             orderModal={orderModal} setOrderModal={setOrderModal}
             invoiceModal={invoiceModal} setInvoiceModal={setInvoiceModal}
-            saveProduct={saveProduct} deleteProduct={deleteProduct} restoreProduct={restoreProduct} deleteProductPermanently={deleteProductPermanently}
+            saveProduct={saveProduct} deleteProduct={deleteProduct}
             updateOrderStatus={updateOrderStatus} updateOrderDetails={updateOrderDetails} deleteCustomer={deleteCustomer}
           />
         )}
@@ -5486,4 +5259,3 @@ export default function App() {
     </>
   );
 }
-
